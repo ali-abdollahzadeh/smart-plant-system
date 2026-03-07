@@ -1,1 +1,10 @@
-cherrypy==18.8.0
+# -------------------------------------------------------
+# Smart Plant Care System - Raspberry Pi Sensor Node
+# Python dependencies
+# -------------------------------------------------------
+
+# HTTP client used to register the device to the catalogue service
+requests==2.31.0
+
+# MQTT client used to publish sensor data to the MQTT broker
+paho-mqtt==1.6.1
