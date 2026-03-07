@@ -1,18 +1,28 @@
-# Use a lightweight Python image as the base
-FROM python:3.9-slim
+FROM python:3.11-slim
 
-# Set the working directory inside the container
 WORKDIR /app
 
-# Copy the requirements file and install dependencies
+# Avoid Python cache files and enable cleaner logs
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+# Catalogue configuration
+ENV CATALOG_HOST=0.0.0.0
+ENV CATALOG_PORT=8000
+ENV CATALOG_FILE=/app/data/catalog.json
+
+# Install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the entire catalogue service code into the container
-COPY . .
+# Copy application code
+COPY main.py .
 
-# Expose port 8000 (the port we configured in CherryPy)
+# Create persistent data directory
+RUN mkdir -p /app/data
+
+# Expose CherryPy port
 EXPOSE 8000
 
-# The command that runs when the container starts
+# Start the catalogue service
 CMD ["python", "main.py"]
