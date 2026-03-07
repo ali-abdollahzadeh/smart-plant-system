@@ -1,3 +1,5 @@
+version: "3.9"
+
 services:
   catalogue:
     build: ./catalogue
@@ -6,12 +8,22 @@ services:
       - "8000:8000"
     volumes:
       - ./catalogue/data:/app/data
+    environment:
+      CATALOG_HOST: 0.0.0.0
+      CATALOG_PORT: 8000
+      CATALOG_FILE: /app/data/catalog.json
+    restart: unless-stopped
 
   mosquitto:
     image: eclipse-mosquitto:2
     container_name: mosquitto
     ports:
       - "1883:1883"
+    volumes:
+      - ./mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - ./mosquitto/data:/mosquitto/data
+      - ./mosquitto/log:/mosquitto/log
+    restart: unless-stopped
 
   raspi-01:
     build: ./raspberrypi
@@ -24,6 +36,7 @@ services:
     depends_on:
       - catalogue
       - mosquitto
+    restart: unless-stopped
 
   raspi-02:
     build: ./raspberrypi
@@ -36,6 +49,7 @@ services:
     depends_on:
       - catalogue
       - mosquitto
+    restart: unless-stopped
 
   raspi-03:
     build: ./raspberrypi
@@ -48,6 +62,7 @@ services:
     depends_on:
       - catalogue
       - mosquitto
+    restart: unless-stopped
 
   raspi-04:
     build: ./raspberrypi
@@ -60,3 +75,4 @@ services:
     depends_on:
       - catalogue
       - mosquitto
+    restart: unless-stopped
