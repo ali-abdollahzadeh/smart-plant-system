@@ -5,7 +5,7 @@ import os
 CATALOG_FILE = "catalog.json"
 
 # ----------------- Helper Functions -----------------
-def load_catalog():
+def load_catalog():sadsafsdf
     # Create an initial structure to store device information and configurations if the file does not exist
     if not os.path.exists(CATALOG_FILE):
         return {
