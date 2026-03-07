@@ -1,0 +1,206 @@
+version: '3.9'
+services:
+  mqtt-broker:
+    image: eclipse-mosquitto:2
+    container_name: mqtt-broker
+    restart: unless-stopped
+    ports:
+      - "1883:1883"         # MQTT
+      # - "9001:9001"       # WebSocket (if enabled)
+    volumes:
+      - ./config/broker/mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+
+  influxdb:
+    image: influxdb:2.7
+    container_name: influxdb
+    ports:
+      - "8086:8086"
+    environment:
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - DOCKER_INFLUXDB_INIT_USERNAME=${INFLUXDB_USERNAME}
+      - DOCKER_INFLUXDB_INIT_PASSWORD=${INFLUXDB_PASSWORD}
+      - DOCKER_INFLUXDB_INIT_ORG=${INFLUXDB_ORG}
+      - DOCKER_INFLUXDB_INIT_BUCKET=${INFLUXDB_BUCKET}
+      - DOCKER_INFLUXDB_INIT_RETENTION=30d
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=${INFLUXDB_ADMIN_TOKEN}
+    volumes:
+      - ./database/influxdb:/var/lib/influxdb2
+    healthcheck:
+      # Use the bundled CLI (present in the official image).
+      # No token or flags needed; exits 0 when the server is reachable.
+      test: ["CMD-SHELL", "influx ping >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+
+
+
+  postgres:
+    image: postgres:15
+    container_name: postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    volumes:
+      - ./database/postgres:/docker-entrypoint-initdb.d   # any init scripts
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  sensor-service:
+    build:
+      context: ./services/sensor-service
+      dockerfile: Dockerfile
+    container_name: sensor-service
+    restart: unless-stopped
+    environment:
+      - MQTT_HOST=${MQTT_HOST}
+      - MQTT_PORT=${MQTT_PORT}
+      - PLANT_ID=${PLANT_ID}
+      - MODE=${MODE}
+      - INTERVAL=${INTERVAL}
+      - CATALOGUE_URL=http://catalogue-service:8000
+    depends_on:
+      mqtt-broker:
+        condition: service_started
+
+  sensor-data-service:
+    build:
+      context: ./services/sensor-data-service
+      dockerfile: Dockerfile
+    container_name: sensor-data-service
+    restart: unless-stopped
+    environment:
+      - MQTT_HOST=${MQTT_HOST}
+      - MQTT_PORT=${MQTT_PORT}
+      - TOPIC=smartplant/+/telemetry
+      - INFLUX_URL=http://influxdb:8086
+      - INFLUX_TOKEN=${INFLUXDB_ADMIN_TOKEN}
+      - INFLUX_ORG=${INFLUXDB_ORG}
+      - INFLUX_BUCKET=${INFLUXDB_BUCKET}
+      - CATALOGUE_URL=http://catalogue-service:8000
+    depends_on:
+      mqtt-broker:
+        condition: service_started
+      influxdb:
+        condition: service_healthy
+
+  catalogue-service:
+    build:
+      context: ./services/catalogue-service
+      dockerfile: Dockerfile
+    container_name: catalogue-service
+    restart: unless-stopped
+    environment:
+      - POSTGRES_HOST=${POSTGRES_HOST}
+      - POSTGRES_PORT=${POSTGRES_PORT}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - LOG_LEVEL=${LOG_LEVEL}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+
+  analytics-service:
+    build:
+      context: ./services/analytics-service
+      dockerfile: Dockerfile
+    container_name: analytics-service
+    restart: unless-stopped
+    environment:
+      - MQTT_HOST=${MQTT_HOST}
+      - MQTT_PORT=${MQTT_PORT}
+      - CATALOGUE_URL=http://catalogue-service:8000
+      - TOPIC_TELEMETRY=smartplant/+/telemetry
+      - INFLUX_URL=http://influxdb:8086
+      - INFLUX_TOKEN=${INFLUXDB_ADMIN_TOKEN}
+      - INFLUX_ORG=${INFLUXDB_ORG}
+      - INFLUX_BUCKET=${INFLUXDB_BUCKET}
+      - LOG_LEVEL=${LOG_LEVEL}
+    depends_on:
+      mqtt-broker:
+        condition: service_started
+      catalogue-service:
+        condition: service_started
+      influxdb:
+        condition: service_healthy
+
+  dashboard-service:
+    build:
+      context: ./services/dashboard-service
+      dockerfile: Dockerfile
+    container_name: dashboard-service
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      - CATALOGUE_URL=http://catalogue-service:8000
+      - INFLUX_URL=http://influxdb:8086
+      - INFLUX_TOKEN=${INFLUXDB_ADMIN_TOKEN}
+      - INFLUX_ORG=${INFLUXDB_ORG}
+      - INFLUX_BUCKET=${INFLUXDB_BUCKET}
+      - MQTT_HOST=mqtt-broker
+      - MQTT_PORT=1883
+    depends_on:
+      mqtt-broker:
+        condition: service_started
+      influxdb:
+        condition: service_healthy
+      catalogue-service:
+        condition: service_started
+
+  actuator-service:
+    build:
+      context: ./services/actuator-service
+      dockerfile: Dockerfile
+    container_name: actuator-service
+    restart: unless-stopped
+    environment:
+      - MQTT_HOST=${MQTT_HOST}
+      - MQTT_PORT=${MQTT_PORT}
+      - CATALOGUE_URL=http://catalogue-service:8000
+      - LOG_LEVEL=${LOG_LEVEL}
+    depends_on:
+      mqtt-broker:
+        condition: service_started
+      catalogue-service:
+        condition: service_started
+
+  telegram-service:
+    build:
+      context: ./services/user-services/telegram-service
+      dockerfile: Dockerfile
+    container_name: telegram-service
+    restart: unless-stopped
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - ALLOWED_CHAT_IDS=${ALLOWED_CHAT_IDS}
+      - CATALOGUE_URL=http://catalogue-service:8000
+      - MQTT_HOST=${MQTT_HOST}
+      - MQTT_PORT=${MQTT_PORT}
+      - LOG_LEVEL=${LOG_LEVEL}
+    depends_on:
+      mqtt-broker:
+        condition: service_started
+      catalogue-service:
+        condition: service_started
+
+volumes:
+  mosquitto_data:
+  mosquitto_log:
+  pgdata:
+  nodered_data:
