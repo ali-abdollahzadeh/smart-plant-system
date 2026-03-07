@@ -8,118 +8,146 @@ import requests
 import paho.mqtt.publish as publish
 
 
-# ----------------- Environment variables -----------------
-DEVICE_ID = os.environ.get("DEVICE_ID", "raspi-01")
-DEVICE_NAME = os.environ.get("DEVICE_NAME", "Plant Sensor Node 1")
-DEVICE_TYPE = os.environ.get("DEVICE_TYPE", "sensor_node")
+def load_config():
+    """
+    Load configuration for one Raspberry Pi sensor node.
 
-MQTT_BROKER = os.environ.get("MQTT_BROKER", "mosquitto")
-MQTT_PORT = int(os.environ.get("MQTT_PORT", 1883))
-MQTT_TOPIC_BASE = os.environ.get("MQTT_TOPIC_BASE", "smartplant/sensors")
+    The same code can be reused for any number of Raspberry Pi devices.
+    Only DEVICE_ID and DEVICE_NAME need to change per instance.
+    """
+    return {
+        # Unique for each Raspberry Pi instance
+        "device_id": os.environ.get("DEVICE_ID", "raspi-01"),
+        "device_name": os.environ.get("DEVICE_NAME", "Plant Sensor Node 1"),
+        "device_type": os.environ.get("DEVICE_TYPE", "sensor_node"),
 
-CATALOG_URL = os.environ.get("CATALOG_URL", "http://catalogue:8000")
-PUBLISH_INTERVAL = int(os.environ.get("PUBLISH_INTERVAL", 10))
-REGISTER_INTERVAL = int(os.environ.get("REGISTER_INTERVAL", 60))
+        # Shared infrastructure
+        "catalog_url": os.environ.get("CATALOG_URL", "http://catalogue:8000"),
+        "mqtt_broker": os.environ.get("MQTT_BROKER", "mosquitto"),
+        "mqtt_port": int(os.environ.get("MQTT_PORT", 1883)),
+        "mqtt_topic_base": os.environ.get("MQTT_TOPIC_BASE", "smartplant/sensors"),
 
-DEVICE_ENDPOINT = os.environ.get("DEVICE_ENDPOINT", f"http://{DEVICE_ID}:5000")
+        # Timing
+        "publish_interval": int(os.environ.get("PUBLISH_INTERVAL", 10)),
+        "register_interval": int(os.environ.get("REGISTER_INTERVAL", 60)),
+    }
+
+
+CONFIG = load_config()
 
 
 class SensorNode:
-    def __init__(self):
-        self.last_registration = 0
-
-    # ----------------- Simulated sensors -----------------
-    def simulate_temperature_sensor(self):
-        return round(random.uniform(15.0, 30.0), 2)
-
-    def simulate_soil_moisture_sensor(self):
-        return round(random.uniform(30.0, 70.0), 2)
-
-    def simulate_light_sensor(self):
-        return round(random.uniform(100.0, 1000.0), 2)
+    def __init__(self, config):
+        self.config = config
+        self.last_registration_time = 0
 
     def now_utc_iso(self):
         return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
-    def read_sensors(self):
+    # -----------------------------
+    # Simulated sensors
+    # Replace these later with real Raspberry Pi sensor readings if needed
+    # -----------------------------
+    def read_temperature(self):
+        return round(random.uniform(18.0, 32.0), 2)
+
+    def read_soil_moisture(self):
+        return round(random.uniform(25.0, 80.0), 2)
+
+    def read_light(self):
+        return round(random.uniform(100.0, 1000.0), 2)
+
+    def collect_data(self):
         return {
-            "device_id": DEVICE_ID,
-            "temperature": self.simulate_temperature_sensor(),
-            "soil_moisture": self.simulate_soil_moisture_sensor(),
-            "light": self.simulate_light_sensor(),
+            "device_id": self.config["device_id"],
+            "temperature": self.read_temperature(),
+            "soil_moisture": self.read_soil_moisture(),
+            "light": self.read_light(),
             "timestamp": self.now_utc_iso()
         }
 
-    # ----------------- Catalogue registration -----------------
-    def register_device(self):
-        payload = {
-            "id": DEVICE_ID,
-            "name": DEVICE_NAME,
-            "type": DEVICE_TYPE,
-            "endpoint": DEVICE_ENDPOINT,
-            "mqtt_topic": f"{MQTT_TOPIC_BASE}/{DEVICE_ID}",
+    # -----------------------------
+    # Catalogue registration
+    # -----------------------------
+    def build_registration_payload(self):
+        return {
+            "id": self.config["device_id"],
+            "name": self.config["device_name"],
+            "type": self.config["device_type"],
+            "mqtt_topic": f"{self.config['mqtt_topic_base']}/{self.config['device_id']}",
             "status": "active"
         }
 
+    def register_device(self):
+        payload = self.build_registration_payload()
+
         try:
             response = requests.post(
-                f"{CATALOG_URL}/devices",
+                f"{self.config['catalog_url']}/devices",
                 json=payload,
                 timeout=5
             )
 
             if response.status_code in (200, 201):
-                print(f"[CATALOGUE] Device registered successfully: {payload}")
-                self.last_registration = time.time()
+                print(f"[CATALOGUE] Registration successful: {payload}")
+                self.last_registration_time = time.time()
             else:
                 print(
-                    f"[CATALOGUE] Registration failed "
-                    f"({response.status_code}): {response.text}"
+                    f"[CATALOGUE] Registration failed - "
+                    f"status={response.status_code}, response={response.text}"
                 )
 
         except requests.RequestException as e:
             print(f"[CATALOGUE] Registration error: {e}")
 
     def register_if_needed(self):
-        now = time.time()
-        if now - self.last_registration >= REGISTER_INTERVAL:
+        current_time = time.time()
+        if current_time - self.last_registration_time >= self.config["register_interval"]:
             self.register_device()
 
-    # ----------------- MQTT publishing -----------------
-    def publish_sensor_data(self, sensor_data):
-        topic = f"{MQTT_TOPIC_BASE}/{DEVICE_ID}"
-        payload = json.dumps(sensor_data)
+    # -----------------------------
+    # MQTT publishing
+    # -----------------------------
+    def publish_data(self, data):
+        topic = f"{self.config['mqtt_topic_base']}/{self.config['device_id']}"
+        payload = json.dumps(data)
 
         try:
             publish.single(
-                topic,
+                topic=topic,
                 payload=payload,
-                hostname=MQTT_BROKER,
-                port=MQTT_PORT
+                hostname=self.config["mqtt_broker"],
+                port=self.config["mqtt_port"]
             )
-            print(f"[MQTT] Published on {topic}: {payload}")
-        except Exception as e:
-            print(f"[MQTT] Failed to publish sensor data: {e}")
+            print(f"[MQTT] Published to {topic}: {payload}")
 
-    # ----------------- Main loop -----------------
+        except Exception as e:
+            print(f"[MQTT] Publish error: {e}")
+
+    # -----------------------------
+    # Main execution loop
+    # -----------------------------
     def run(self):
         print("[START] Raspberry Pi sensor node started")
-        print(f"[INFO] DEVICE_ID={DEVICE_ID}")
-        print(f"[INFO] MQTT_BROKER={MQTT_BROKER}:{MQTT_PORT}")
-        print(f"[INFO] CATALOG_URL={CATALOG_URL}")
-        print(f"[INFO] PUBLISH_INTERVAL={PUBLISH_INTERVAL}s")
-        print(f"[INFO] REGISTER_INTERVAL={REGISTER_INTERVAL}s")
+        print(f"[INFO] Device ID: {self.config['device_id']}")
+        print(f"[INFO] Device Name: {self.config['device_name']}")
+        print(f"[INFO] Device Type: {self.config['device_type']}")
+        print(f"[INFO] Catalogue URL: {self.config['catalog_url']}")
+        print(f"[INFO] MQTT Broker: {self.config['mqtt_broker']}:{self.config['mqtt_port']}")
+        print(f"[INFO] MQTT Topic Base: {self.config['mqtt_topic_base']}")
+        print(f"[INFO] Publish Interval: {self.config['publish_interval']} seconds")
+        print(f"[INFO] Register Interval: {self.config['register_interval']} seconds")
 
-        # First registration attempt at startup
+        # Initial registration
         self.register_device()
 
         while True:
             self.register_if_needed()
-            sensor_data = self.read_sensors()
-            self.publish_sensor_data(sensor_data)
-            time.sleep(PUBLISH_INTERVAL)
+            sensor_data = self.collect_data()
+            self.publish_data(sensor_data)
+            time.sleep(self.config["publish_interval"])
 
 
 if __name__ == "__main__":
-    node = SensorNode()
+    node = SensorNode(CONFIG)
     node.run()
