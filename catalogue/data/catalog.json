@@ -7,7 +7,7 @@
             "mqtt_topic": "smartplant/sensors/raspi-02",
             "status": "active",
             "created_at": "2026-03-08T10:36:29+00:00",
-            "last_update": "2026-03-08T11:11:38+00:00"
+            "last_update": "2026-03-08T11:12:38+00:00"
         },
         {
             "id": "raspi-01",
@@ -16,7 +16,7 @@
             "mqtt_topic": "smartplant/sensors/raspi-01",
             "status": "active",
             "created_at": "2026-03-08T10:36:29+00:00",
-            "last_update": "2026-03-08T11:11:38+00:00"
+            "last_update": "2026-03-08T11:12:38+00:00"
         },
         {
             "id": "raspi-03",
@@ -25,7 +25,7 @@
             "mqtt_topic": "smartplant/sensors/raspi-03",
             "status": "active",
             "created_at": "2026-03-08T10:36:29+00:00",
-            "last_update": "2026-03-08T11:11:38+00:00"
+            "last_update": "2026-03-08T11:12:38+00:00"
         },
         {
             "id": "raspi-04",
@@ -34,7 +34,7 @@
             "mqtt_topic": "smartplant/sensors/raspi-04",
             "status": "active",
             "created_at": "2026-03-08T10:38:29+00:00",
-            "last_update": "2026-03-08T11:11:38+00:00"
+            "last_update": "2026-03-08T11:12:38+00:00"
         }
     ],
     "services": [],
