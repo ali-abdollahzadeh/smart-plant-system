@@ -48,7 +48,8 @@ class SharedState:
     def __init__(self) -> None:
         self.lock = threading.Lock()
         self.latest_data: Dict[str, Dict[str, Any]] = {}
-        self.alerts: List[Dict[str, Any]] = []
+        self.command_history: List[Dict[str, Any]] = []
+        self.last_command_by_device: Dict[str, Dict[str, str]] = {}
         self.last_registration_time: float = 0.0
 
 
@@ -69,9 +70,6 @@ class AnalyticsControlService:
     # -----------------------------
     def sensor_topic(self) -> str:
         return APP_CONFIG["mqtt"]["sensor_topic"]
-
-    def alert_topic_base(self) -> str:
-        return APP_CONFIG["mqtt"]["alert_topic_base"]
 
     def command_topic_base(self) -> str:
         return APP_CONFIG["mqtt"]["command_topic_base"]
@@ -115,6 +113,7 @@ class AnalyticsControlService:
         while True:
             self.register_service()
             time.sleep(RUNTIME["register_interval"])
+
     # -----------------------------
     # MQTT handling
     # -----------------------------
@@ -142,7 +141,7 @@ class AnalyticsControlService:
                 STATE.latest_data[device_id] = sensor_data
 
             print(f"[MQTT] Received from {msg.topic}: {sensor_data}")
-            self.evaluate_rules(sensor_data)
+            self.evaluate_controls(sensor_data)
 
         except json.JSONDecodeError:
             print("[MQTT] Invalid JSON payload received")
@@ -164,51 +163,48 @@ class AnalyticsControlService:
                 time.sleep(5)
 
     # -----------------------------
-    # Alerts and commands
+    # Command publishing
     # -----------------------------
-    def publish_json(self, topic: str, payload: Dict[str, Any]) -> None:
-        try:
-            self.mqtt_client.publish(topic, json.dumps(payload))
-            print(f"[MQTT] Published to {topic}: {payload}")
-        except Exception as e:
-            print(f"[MQTT] Publish error on {topic}: {e}")
-
-    def add_alert(self, alert: Dict[str, Any]) -> None:
+    def publish_command(self, device_id: str, command: str, reason: str, sensor_type: str) -> None:
         with STATE.lock:
-            STATE.alerts.append(alert)
+            last_for_device = STATE.last_command_by_device.get(device_id, {})
+            last_command = last_for_device.get(sensor_type)
 
-            # keep only the latest 100 alerts
-            if len(STATE.alerts) > 100:
-                STATE.alerts = STATE.alerts[-100:]
+        # Avoid publishing the same command repeatedly
+        if last_command == command:
+            return
 
-    def publish_alert(self, device_id: str, alert_type: str, value: Any, threshold: Any) -> None:
-        alert = {
-            "device_id": device_id,
-            "alert": alert_type,
-            "value": value,
-            "threshold": threshold,
-            "timestamp": now_utc_iso()
-        }
-
-        topic = f"{self.alert_topic_base()}/{device_id}"
-        self.publish_json(topic, alert)
-        self.add_alert(alert)
-
-    def publish_command(self, device_id: str, command: str, reason: str) -> None:
         payload = {
             "device_id": device_id,
             "command": command,
             "reason": reason,
+            "sensor_type": sensor_type,
             "timestamp": now_utc_iso()
         }
 
         topic = f"{self.command_topic_base()}/{device_id}"
-        self.publish_json(topic, payload)
+
+        try:
+            self.mqtt_client.publish(topic, json.dumps(payload))
+            print(f"[MQTT] Published command to {topic}: {payload}")
+
+            with STATE.lock:
+                STATE.command_history.append(payload)
+                if len(STATE.command_history) > 200:
+                    STATE.command_history = STATE.command_history[-200:]
+
+                if device_id not in STATE.last_command_by_device:
+                    STATE.last_command_by_device[device_id] = {}
+
+                STATE.last_command_by_device[device_id][sensor_type] = command
+
+        except Exception as e:
+            print(f"[MQTT] Publish command error: {e}")
 
     # -----------------------------
     # Rule engine
     # -----------------------------
-    def evaluate_rules(self, sensor_data: Dict[str, Any]) -> None:
+    def evaluate_controls(self, sensor_data: Dict[str, Any]) -> None:
         device_id = sensor_data["device_id"]
         thresholds = self.thresholds()
         commands = self.commands()
@@ -216,86 +212,87 @@ class AnalyticsControlService:
         temperature = sensor_data.get("temperature")
         soil_moisture = sensor_data.get("soil_moisture")
         humidity = sensor_data.get("humidity")
-# Soil moisture control
-        if soil_moisture is not None:
-            if soil_moisture < thresholds["soil_moisture_min"]:
-                self.publish_alert(
-                    device_id=device_id,
-                    alert_type="low_soil_moisture",
-                    value=soil_moisture,
-                    threshold=thresholds["soil_moisture_min"]
-                )
-                self.publish_command(
-                    device_id=device_id,
-                    command=commands["low_soil_moisture"],
-                    reason="soil_moisture_below_threshold"
-                )
-            else:
-                self.publish_command(
-                    device_id=device_id,
-                    command=commands["normal_soil_moisture"],
-                    reason="soil_moisture_back_to_normal"
-                )
 
         # Temperature control
         if temperature is not None:
-            if temperature > thresholds["temperature_max"]:
-                self.publish_alert(
-                    device_id=device_id,
-                    alert_type="high_temperature",
-                    value=temperature,
-                    threshold=thresholds["temperature_max"]
-                )
+            temp_min = thresholds["temperature"]["min"]
+            temp_max = thresholds["temperature"]["max"]
+
+            if temperature < temp_min:
                 self.publish_command(
                     device_id=device_id,
-                    command=commands["high_temperature"],
-                    reason="temperature_above_threshold"
+                    command=commands["temperature_low"],
+                    reason="temperature_below_min_threshold",
+                    sensor_type="temperature"
+                )
+            elif temperature > temp_max:
+                self.publish_command(
+                    device_id=device_id,
+                    command=commands["temperature_high"],
+                    reason="temperature_above_max_threshold",
+                    sensor_type="temperature"
                 )
             else:
                 self.publish_command(
                     device_id=device_id,
-                    command=commands["normal_temperature"],
-                    reason="temperature_back_to_normal"
+                    command=commands["temperature_normal"],
+                    reason="temperature_back_to_normal_range",
+                    sensor_type="temperature"
+                )
+
+        # Soil moisture control
+        if soil_moisture is not None:
+            soil_min = thresholds["soil_moisture"]["min"]
+            soil_max = thresholds["soil_moisture"]["max"]
+
+            if soil_moisture < soil_min:
+                self.publish_command(
+                    device_id=device_id,
+                    command=commands["soil_moisture_low"],
+                    reason="soil_moisture_below_min_threshold",
+                    sensor_type="soil_moisture"
+                )
+            elif soil_moisture > soil_max:
+                self.publish_command(
+                    device_id=device_id,
+                    command=commands["soil_moisture_high"],
+                    reason="soil_moisture_above_max_threshold",
+                    sensor_type="soil_moisture"
+                )
+            else:
+                self.publish_command(
+                    device_id=device_id,
+                    command=commands["soil_moisture_normal"],
+                    reason="soil_moisture_back_to_normal_range",
+                    sensor_type="soil_moisture"
                 )
 
         # Humidity control
         if humidity is not None:
-            if humidity < thresholds["humidity_min"]:
-                self.publish_alert(
-                    device_id=device_id,
-                    alert_type="low_humidity",
-                    value=humidity,
-                    threshold=thresholds["humidity_min"]
-                )
+            hum_min = thresholds["humidity"]["min"]
+            hum_max = thresholds["humidity"]["max"]
+
+            if humidity < hum_min:
                 self.publish_command(
                     device_id=device_id,
-                    command=commands["low_humidity"],
-                    reason="humidity_below_threshold"
+                    command=commands["humidity_low"],
+                    reason="humidity_below_min_threshold",
+                    sensor_type="humidity"
                 )
-
-            elif humidity > thresholds["humidity_max"]:
-                self.publish_alert(
-                    device_id=device_id,
-                    alert_type="high_humidity",
-                    value=humidity,
-                    threshold=thresholds["humidity_max"]
-                )
+            elif humidity > hum_max:
                 self.publish_command(
                     device_id=device_id,
-                    command=commands["high_humidity"],
-                    reason="humidity_above_threshold"
+                    command=commands["humidity_high"],
+                    reason="humidity_above_max_threshold",
+                    sensor_type="humidity"
                 )
-
-    # -----------------------------
-    # Summary helpers
-    # -----------------------------
-    def get_system_summary(self) -> Dict[str, Any]:
-        with STATE.lock:
-            return {
-                "devices_count": len(STATE.latest_data),
-                "alerts_count": len(STATE.alerts),
-                "last_update": now_utc_iso()
-            }
+            else:
+                self.publish_command(
+                    device_id=device_id,
+                    command=commands["humidity_normal"],
+                    reason="humidity_back_to_normal_range",
+                    sensor_type="humidity"
+                )
 
 
 SERVICE = AnalyticsControlService()
@@ -314,7 +311,7 @@ class RootAPI:
                 "health": "/health",
                 "devices": "/devices",
                 "device_by_id": "/devices/<device_id>",
-                "alerts": "/alerts",
+                "commands": "/commands",
                 "rules": "/rules",
                 "summary": "/summary"
             }
@@ -330,6 +327,8 @@ class HealthAPI:
             "timestamp": now_utc_iso(),
             "service_id": RUNTIME["service_id"]
         }
+
+
 @cherrypy.expose
 class DevicesAPI:
     @cherrypy.tools.json_out()
@@ -349,13 +348,13 @@ class DevicesAPI:
 
 
 @cherrypy.expose
-class AlertsAPI:
+class CommandsAPI:
     @cherrypy.tools.json_out()
     def GET(self):
         with STATE.lock:
             return {
-                "count": len(STATE.alerts),
-                "alerts": STATE.alerts
+                "count": len(STATE.command_history),
+                "commands": STATE.command_history
             }
 
 
@@ -373,7 +372,12 @@ class RulesAPI:
 class SummaryAPI:
     @cherrypy.tools.json_out()
     def GET(self):
-        return SERVICE.get_system_summary()
+        with STATE.lock:
+            return {
+                "devices_count": len(STATE.latest_data),
+                "commands_count": len(STATE.command_history),
+                "last_update": now_utc_iso()
+            }
 
 
 def start_background_threads():
@@ -381,7 +385,7 @@ def start_background_threads():
     threading.Thread(target=SERVICE.registration_loop, daemon=True).start()
 
 
-if name == "__main__":
+if __name__ == "__main__":
     print("[START] Analytics Control Service starting...")
     print(f"[INFO] Service ID: {RUNTIME['service_id']}")
     print(f"[INFO] MQTT Broker: {RUNTIME['mqtt_broker']}:{RUNTIME['mqtt_port']}")
@@ -392,7 +396,7 @@ if name == "__main__":
     app = RootAPI()
     app.health = HealthAPI()
     app.devices = DevicesAPI()
-    app.alerts = AlertsAPI()
+    app.commands = CommandsAPI()
     app.rules = RulesAPI()
     app.summary = SummaryAPI()
 

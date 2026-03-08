@@ -177,41 +177,80 @@ class AlertGeneratorService:
         soil_moisture = sensor_data.get("soil_moisture")
         humidity = sensor_data.get("humidity")
 
-        if soil_moisture is not None and soil_moisture < thresholds["soil_moisture_min"]:
-            alerts.append({
-                "device_id": device_id,
-                "alert": "low_soil_moisture",
-                "value": soil_moisture,
-                "threshold": thresholds["soil_moisture_min"],
-                "timestamp": now_utc_iso()
-            })
+        # Temperature alerts
+        if temperature is not None:
+            temp_min = thresholds["temperature"]["min"]
+            temp_max = thresholds["temperature"]["max"]
 
-        if temperature is not None and temperature > thresholds["temperature_max"]:
-            alerts.append({
-                "device_id": device_id,
-                "alert": "high_temperature",
-                "value": temperature,
-                "threshold": thresholds["temperature_max"],
-                "timestamp": now_utc_iso()
-            })
+            if temperature < temp_min:
+                alerts.append({
+                    "device_id": device_id,
+                    "alert": "low_temperature",
+                    "value": temperature,
+                    "threshold": temp_min,
+                    "threshold_type": "min",
+                    "timestamp": now_utc_iso()
+                })
 
-        if humidity is not None and humidity < thresholds["humidity_min"]:
-            alerts.append({
-                "device_id": device_id,
-                "alert": "low_humidity",
-                "value": humidity,
-                "threshold": thresholds["humidity_min"],
-                "timestamp": now_utc_iso()
-            })
+            elif temperature > temp_max:
+                alerts.append({
+                    "device_id": device_id,
+                    "alert": "high_temperature",
+                    "value": temperature,
+                    "threshold": temp_max,
+                    "threshold_type": "max",
+                    "timestamp": now_utc_iso()
+                })
 
-        if humidity is not None and humidity > thresholds["humidity_max"]:
-            alerts.append({
-                "device_id": device_id,
-                "alert": "high_humidity",
-                "value": humidity,
-                "threshold": thresholds["humidity_max"],
-                "timestamp": now_utc_iso()
-            })
+        # Soil moisture alerts
+        if soil_moisture is not None:
+            soil_min = thresholds["soil_moisture"]["min"]
+            soil_max = thresholds["soil_moisture"]["max"]
+
+            if soil_moisture < soil_min:
+                alerts.append({
+                    "device_id": device_id,
+                    "alert": "low_soil_moisture",
+                    "value": soil_moisture,
+                    "threshold": soil_min,
+                    "threshold_type": "min",
+                    "timestamp": now_utc_iso()
+                })
+
+            elif soil_moisture > soil_max:
+                alerts.append({
+                    "device_id": device_id,
+                    "alert": "high_soil_moisture",
+                    "value": soil_moisture,
+                    "threshold": soil_max,
+                    "threshold_type": "max",
+                    "timestamp": now_utc_iso()
+                })
+
+        # Humidity alerts
+        if humidity is not None:
+            hum_min = thresholds["humidity"]["min"]
+            hum_max = thresholds["humidity"]["max"]
+
+            if humidity < hum_min:
+                alerts.append({
+                    "device_id": device_id,
+                    "alert": "low_humidity",
+                    "value": humidity,
+                    "threshold": hum_min,
+                    "threshold_type": "min",
+                    "timestamp": now_utc_iso()
+                })
+
+            elif humidity > hum_max:
+                alerts.append({
+                    "device_id": device_id,
+                    "alert": "high_humidity",
+                    "value": humidity,
+                    "threshold": hum_max,
+                    "threshold_type": "max",
+                    "timestamp": now_utc_iso()
+                })
 
         return alerts
 
