@@ -91,6 +91,7 @@ services:
     environment:
       DEVICE_ID: raspi-01
       DEVICE_NAME: Plant Sensor Node 1
+      MQTT_COMMAND_TOPIC_BASE: smartplant/commands
     depends_on:
       - catalogue
       - mosquitto
@@ -104,6 +105,7 @@ services:
     environment:
       DEVICE_ID: raspi-02
       DEVICE_NAME: Plant Sensor Node 2
+      MQTT_COMMAND_TOPIC_BASE: smartplant/commands
     depends_on:
       - catalogue
       - mosquitto
@@ -117,6 +119,7 @@ services:
     environment:
       DEVICE_ID: raspi-03
       DEVICE_NAME: Plant Sensor Node 3
+      MQTT_COMMAND_TOPIC_BASE: smartplant/commands
     depends_on:
       - catalogue
       - mosquitto
@@ -130,6 +133,7 @@ services:
     environment:
       DEVICE_ID: raspi-04
       DEVICE_NAME: Plant Sensor Node 4
+      MQTT_COMMAND_TOPIC_BASE: smartplant/commands
     depends_on:
       - catalogue
       - mosquitto
