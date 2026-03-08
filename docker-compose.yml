@@ -39,7 +39,7 @@ services:
     restart: unless-stopped
   analytics-control:
     build: ./analytics
-    container_name: analytics-control
+    container_name: analytics
     env_file:
       - .env
     environment:
@@ -58,6 +58,30 @@ services:
     depends_on:
       - catalogue
       - mosquitto
+    restart: unless-stopped
+  alert-generator:
+    build: ./alert_generator
+    container_name: alert-generator
+    env_file:
+      - .env
+    environment:
+      SERVICE_ID: alert-generator
+      SERVICE_NAME: Alert Generator
+      SERVICE_TYPE: alert_generator
+      SERVICE_HOST: 0.0.0.0
+      SERVICE_PORT: 8091
+      CONFIG_FILE: /app/config.json
+      CATALOG_URL: http://catalogue:8000
+      REGISTER_INTERVAL: 60
+      MQTT_BROKER: mosquitto
+      MQTT_PORT: 1883
+      THINGSPEAK_ADAPTER_URL: http://thingspeak-adapter:8080
+    ports:
+      - "8091:8091"
+    depends_on:
+      - catalogue
+      - mosquitto
+      - thingspeak-adapter
     restart: unless-stopped
   raspi-01:
     build: ./raspberry-pi
