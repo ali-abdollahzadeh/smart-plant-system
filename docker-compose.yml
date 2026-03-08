@@ -26,7 +26,7 @@ services:
     restart: unless-stopped
 
   raspi-01:
-    build: ./raspberrypi
+    build: ./raspberry-pi
     container_name: raspi-01
     env_file:
       - .env
@@ -39,7 +39,7 @@ services:
     restart: unless-stopped
 
   raspi-02:
-    build: ./raspberrypi
+    build: ./raspberry-pi
     container_name: raspi-02
     env_file:
       - .env
@@ -52,7 +52,7 @@ services:
     restart: unless-stopped
 
   raspi-03:
-    build: ./raspberrypi
+    build: ./raspberry-pi
     container_name: raspi-03
     env_file:
       - .env
@@ -65,7 +65,7 @@ services:
     restart: unless-stopped
 
   raspi-04:
-    build: ./raspberrypi
+    build: ./raspberry-pi
     container_name: raspi-04
     env_file:
       - .env
