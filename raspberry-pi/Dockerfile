@@ -12,6 +12,7 @@ ENV DEVICE_TYPE=sensor_node
 ENV MQTT_BROKER=mosquitto
 ENV MQTT_PORT=1883
 ENV MQTT_TOPIC_BASE=smartplant/sensors
+ENV MQTT_COMMAND_TOPIC_BASE=smartplant/commands
 
 ENV CATALOG_URL=http://catalogue:8000
 ENV PUBLISH_INTERVAL=10
