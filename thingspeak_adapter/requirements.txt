@@ -1,0 +1,5 @@
+# Smart Plant Care System - ThingSpeak Adapter
+
+cherrypy==18.8.0
+requests==2.31.0
+paho-mqtt==1.6.1
