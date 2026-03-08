@@ -54,15 +54,15 @@ class SensorNode:
     def read_soil_moisture(self):
         return round(random.uniform(25.0, 80.0), 2)
 
-    def read_light(self):
-        return round(random.uniform(100.0, 1000.0), 2)
+    def read_humidity(self):
+        return round(random.uniform(25.0, 80.0), 2)
 
     def collect_data(self):
         return {
             "device_id": self.config["device_id"],
             "temperature": self.read_temperature(),
             "soil_moisture": self.read_soil_moisture(),
-            "light": self.read_light(),
+            "humidity": self.read_humidity(),
             "timestamp": self.now_utc_iso()
         }
 
