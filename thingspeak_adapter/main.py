@@ -347,7 +347,8 @@ class RootAPI:
             "endpoints": {
                 "health": "/health",
                 "latest": "/latest",
-                "registry": "/registry"
+                "registry": "/registry",
+                "history": "/history?device_id=raspi-01&results=5"
             }
         }
 
@@ -382,6 +383,48 @@ class RegistryAPI:
     def GET(self):
         with STATE.lock:
             return STATE.registry
+@cherrypy.expose
+class HistoryAPI:
+    @cherrypy.tools.json_out()
+    def GET(self, device_id=None, results=20):
+        if not device_id:
+            cherrypy.response.status = 400
+            return {"error": "device_id is required"}
+
+        channel_info = ADAPTER.get_device_channel(device_id)
+        if not channel_info:
+            cherrypy.response.status = 404
+            return {"error": f"No ThingSpeak channel found for device '{device_id}'"}
+
+        channel_id = channel_info.get("channel_id")
+        read_api_key = channel_info.get("read_api_key")
+
+        if not channel_id:
+            cherrypy.response.status = 404
+            return {"error": f"Missing channel_id for device '{device_id}'"}
+
+        url = f"{ADAPTER.thingspeak_base_url()}/channels/{channel_id}/feeds.json"
+        params = {"results": int(results)}
+
+        if read_api_key:
+            params["api_key"] = read_api_key
+
+        try:
+            response = requests.get(url, params=params, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+
+            return {
+                "device_id": device_id,
+                "channel_id": channel_id,
+                "count": len(data.get("feeds", [])),
+                "channel": data.get("channel", {}),
+                "feeds": data.get("feeds", [])
+            }
+
+        except requests.RequestException as e:
+            cherrypy.response.status = 500
+            return {"error": f"ThingSpeak history request failed: {e}"}
 
 
 def start_background_threads():
@@ -401,6 +444,7 @@ if __name__ == "__main__":
     app.health = HealthAPI()
     app.latest = LatestAPI()
     app.registry = RegistryAPI()
+    app.history = HistoryAPI()
 
     conf = {
         "/": {
