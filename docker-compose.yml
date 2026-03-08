@@ -37,7 +37,28 @@ services:
       - mosquitto
       - catalogue
     restart: unless-stopped
-
+  analytics-control:
+    build: ./analytics
+    container_name: analytics-control
+    env_file:
+      - .env
+    environment:
+      SERVICE_ID: analytics-control
+      SERVICE_NAME: Analytics Control Service
+      SERVICE_TYPE: analytics_control
+      SERVICE_HOST: 0.0.0.0
+      SERVICE_PORT: 8090
+      CONFIG_FILE: /app/config.json
+      CATALOG_URL: http://catalogue:8000
+      REGISTER_INTERVAL: 60
+      MQTT_BROKER: mosquitto
+      MQTT_PORT: 1883
+    ports:
+      - "8090:8090"
+    depends_on:
+      - catalogue
+      - mosquitto
+    restart: unless-stopped
   raspi-01:
     build: ./raspberry-pi
     container_name: raspi-01
