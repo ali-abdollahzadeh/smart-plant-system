@@ -1,7 +1,7 @@
 {
   "thingspeak": {
     "base_url": "https://api.thingspeak.com",
-    "user_api_key": "YOUR_USER_API_KEY",
+    "user_api_key": "Q4D8HQEL9QJQBFGZ",
     "public_channels": false
   },
   "mqtt": {
