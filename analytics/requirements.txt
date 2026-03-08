@@ -1,0 +1,10 @@
+# Smart Plant Care System - Control / Analytics Service
+
+# REST API server
+cherrypy==18.8.0
+
+# HTTP client for communication with other services
+requests==2.31.0
+
+# MQTT client for subscribing to sensor data and publishing alerts/commands
+paho-mqtt==1.6.1

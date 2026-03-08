@@ -1,1 +1,22 @@
-{}
+{
+    "mqtt": {
+      "sensor_topic": "smartplant/sensors/#",
+      "alert_topic_base": "smartplant/alerts",
+      "command_topic_base": "smartplant/commands"
+    },
+    "thresholds": {
+      "soil_moisture_min": 30,
+      "temperature_max": 30,
+      "humidity_min": 40,
+      "humidity_max": 80
+    },
+    "commands": {
+      "low_soil_moisture": "start_watering",
+      "normal_soil_moisture": "stop_watering",
+      "high_temperature": "start_cooling",
+      "normal_temperature": "stop_cooling",
+      "low_humidity": "increase_humidity",
+      "high_humidity": "decrease_humidity"
+    }
+  }
+    
