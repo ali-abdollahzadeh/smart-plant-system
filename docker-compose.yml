@@ -25,6 +25,17 @@ services:
       - ./mosquitto/log:/mosquitto/log
     restart: unless-stopped
 
+  thingspeak-adapter:
+    build: ./thingspeak_adapter
+    container_name: thingspeak-adapter
+    env_file:
+      - .env
+    environment:
+      CONFIG_FILE: /app/config.json
+    depends_on:
+      - mosquitto
+    restart: unless-stopped
+
   raspi-01:
     build: ./raspberry-pi
     container_name: raspi-01
