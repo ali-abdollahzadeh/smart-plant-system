@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   catalogue:
     build: ./catalogue
@@ -28,12 +26,16 @@ services:
   thingspeak-adapter:
     build: ./thingspeak_adapter
     container_name: thingspeak-adapter
+    volumes:
+      - ./thingspeak_adapter/data:/app/data
     env_file:
       - .env
     environment:
       CONFIG_FILE: /app/config.json
+      REGISTRY_FILE: /app/data/channel_registry.json
     depends_on:
       - mosquitto
+      - catalogue
     restart: unless-stopped
 
   raspi-01:

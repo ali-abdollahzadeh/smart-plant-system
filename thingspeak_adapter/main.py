@@ -46,8 +46,17 @@ def load_runtime_config() -> Dict[str, Any]:
         "registry_file": os.environ.get("REGISTRY_FILE", "channel_registry.json"),
     }
 
+def ensure_file_exists(path: str, default_data: Dict[str, Any]) -> None:
+    directory = os.path.dirname(path)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
+
+    if not os.path.exists(path):
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(default_data, f, indent=2)
 
 RUNTIME = load_runtime_config()
+ensure_file_exists(RUNTIME["registry_file"], {})
 APP_CONFIG = load_json(RUNTIME["config_file"])
 
 
@@ -61,6 +70,7 @@ class SharedState:
         self.last_upload_status: Optional[Dict[str, Any]] = None
         self.last_registration_time: float = 0.0
         self.registry: Dict[str, Any] = load_json(RUNTIME["registry_file"])
+        print(f"[REGISTRY] Loaded registry from {RUNTIME['registry_file']}: {self.registry}")
 
 
 STATE = SharedState()

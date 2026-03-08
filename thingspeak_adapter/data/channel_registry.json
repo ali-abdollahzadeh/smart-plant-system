@@ -1,0 +1,26 @@
+{
+  "raspi-04": {
+    "channel_id": 3290737,
+    "name": "Plant Channel - raspi-04",
+    "write_api_key": "QEYICAVCM15XZ4OM",
+    "read_api_key": "JJPWB4B84Q1MY341"
+  },
+  "raspi-03": {
+    "channel_id": 3290738,
+    "name": "Plant Channel - raspi-03",
+    "write_api_key": "UUQJHWSS7K1G8D09",
+    "read_api_key": "BYSA51NQXXTFKCWM"
+  },
+  "raspi-01": {
+    "channel_id": 3290739,
+    "name": "Plant Channel - raspi-01",
+    "write_api_key": "UBLXZEVRYU609F9J",
+    "read_api_key": "UUJWYMU6HTBLJBC8"
+  },
+  "raspi-02": {
+    "channel_id": 3290740,
+    "name": "Plant Channel - raspi-02",
+    "write_api_key": "B817G11GZZLWCMFK",
+    "read_api_key": "A0JXDH5I5MRM1U4W"
+  }
+}
