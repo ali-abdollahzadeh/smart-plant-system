@@ -1,5 +1,6 @@
 import json
 import os
+import math
 import random
 import threading
 import time
@@ -41,6 +42,7 @@ class SensorNode:
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         self.last_registration_time = 0.0
+        self.soil = random.uniform(55, 70)
 
         # local simulated actuator/control state
         self.control_state = {
@@ -59,14 +61,27 @@ class SensorNode:
     # --------------------------------------------------
     # Simulated sensors
     # --------------------------------------------------
+    def _day_fraction(self) -> float:
+        now = datetime.now()
+        seconds_today = now.hour * 3600 + now.minute * 60 + now.second
+        return seconds_today / 86400.0
+    
     def read_temperature(self) -> float:
-        return round(random.uniform(18.0, 32.0), 2)
+        frac = self._day_fraction()
+        base = 24 + 6 * math.sin(2 * math.pi * frac)  # 18–30°C cycle
+        noise = random.uniform(-0.7, 0.7)
+        return round(base + noise, 1)
 
-    def read_soil_moisture(self) -> float:
-        return round(random.uniform(25.0, 85.0), 2)
+    def read_soil_moisture(self):
+        decay = random.uniform(0.5, 2.0)
+        self.soil = max(150.0, self.soil - decay)
+        return round(self.soil, 1)
 
     def read_humidity(self) -> float:
-        return round(random.uniform(35.0, 90.0), 2)
+        frac = self._day_fraction()
+        base = 60 - 15 * math.sin(2 * math.pi * frac)  # 45–75% cycle
+        noise = random.uniform(-1.5, 1.5)
+        return round(base + noise, 1)
 
     def collect_data(self) -> Dict[str, Any]:
         return {
