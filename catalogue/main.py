@@ -10,7 +10,7 @@ PORT = int(os.environ.get("CATALOG_PORT", 8000))
 
 
 # ----------------- Thread-safe storage -----------------
-catalog_lock = threading.Lock()
+catalog_lock = threading.RLock()
 
 
 # ----------------- Defaults -----------------

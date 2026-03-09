@@ -91,7 +91,14 @@ services:
     environment:
       DEVICE_ID: raspi-01
       DEVICE_NAME: Plant Sensor Node 1
+      DEVICE_TYPE: sensor_node
+      CATALOG_URL: http://catalogue:8000
+      MQTT_BROKER: mosquitto
+      MQTT_PORT: 1883
+      MQTT_TOPIC_BASE: smartplant/sensors
       MQTT_COMMAND_TOPIC_BASE: smartplant/commands
+      PUBLISH_INTERVAL: 10
+      REGISTER_INTERVAL: 60
     depends_on:
       - catalogue
       - mosquitto
@@ -105,7 +112,14 @@ services:
     environment:
       DEVICE_ID: raspi-02
       DEVICE_NAME: Plant Sensor Node 2
+      DEVICE_TYPE: sensor_node
+      CATALOG_URL: http://catalogue:8000
+      MQTT_BROKER: mosquitto
+      MQTT_PORT: 1883
+      MQTT_TOPIC_BASE: smartplant/sensors
       MQTT_COMMAND_TOPIC_BASE: smartplant/commands
+      PUBLISH_INTERVAL: 10
+      REGISTER_INTERVAL: 60
     depends_on:
       - catalogue
       - mosquitto
@@ -119,7 +133,14 @@ services:
     environment:
       DEVICE_ID: raspi-03
       DEVICE_NAME: Plant Sensor Node 3
+      DEVICE_TYPE: sensor_node
+      CATALOG_URL: http://catalogue:8000
+      MQTT_BROKER: mosquitto
+      MQTT_PORT: 1883
+      MQTT_TOPIC_BASE: smartplant/sensors
       MQTT_COMMAND_TOPIC_BASE: smartplant/commands
+      PUBLISH_INTERVAL: 10
+      REGISTER_INTERVAL: 60
     depends_on:
       - catalogue
       - mosquitto
@@ -133,7 +154,14 @@ services:
     environment:
       DEVICE_ID: raspi-04
       DEVICE_NAME: Plant Sensor Node 4
+      DEVICE_TYPE: sensor_node
+      CATALOG_URL: http://catalogue:8000
+      MQTT_BROKER: mosquitto
+      MQTT_PORT: 1883
+      MQTT_TOPIC_BASE: smartplant/sensors
       MQTT_COMMAND_TOPIC_BASE: smartplant/commands
+      PUBLISH_INTERVAL: 10
+      REGISTER_INTERVAL: 60
     depends_on:
       - catalogue
       - mosquitto
