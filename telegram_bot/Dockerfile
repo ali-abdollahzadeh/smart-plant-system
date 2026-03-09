@@ -17,11 +17,13 @@ ENV SERVICE_TYPE=telegram_bot
 ENV REGISTER_INTERVAL=60
 
 ENV CONFIG_FILE=/app/config.json
+ENV AUTH_FILE=/app/auth.json
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY main.py .
 COPY config.json .
+COPY auth.json .
 
 CMD ["python", "main.py"]
