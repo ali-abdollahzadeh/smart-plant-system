@@ -60,6 +60,7 @@ def require_authorization(message) -> bool:
         return False
     return True
 
+
 # --------------------------------------------------
 # Service registration
 # --------------------------------------------------
@@ -166,16 +167,13 @@ def format_report(report: Dict[str, Any]) -> str:
 def handle_start(message):
     if not require_authorization(message):
         return
-
     bot.reply_to(message, APP_CONFIG["messages"]["welcome"])
-    print(f"telegram user ID: {message.from_user.id}")
 
 
 @bot.message_handler(commands=["help"])
 def handle_help(message):
     if not require_authorization(message):
         return
-
     bot.reply_to(message, APP_CONFIG["messages"]["help"])
 
 
@@ -276,7 +274,6 @@ def handle_commands(message):
 def handle_unknown(message):
     if not require_authorization(message):
         return
-
     bot.reply_to(message, "Unknown command. Use /help")
 
 
@@ -285,7 +282,7 @@ def handle_unknown(message):
 # --------------------------------------------------
 if __name__ == "__main__":
     print("[START] Telegram Bot starting...")
-    print(f"Authorized users: {get_authorized_users()}")
-    threading.Thread(target=registration_loop, daemon=True).start()
+    print(f"[INFO] Authorized users: {get_authorized_users()}")
 
+    threading.Thread(target=registration_loop, daemon=True).start()
     bot.infinity_polling(timeout=30, long_polling_timeout=20)
