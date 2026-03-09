@@ -19,6 +19,12 @@
     "report_device_id_required": "Please provide a device_id. Example: /report raspi-01",
     "no_alerts": "No alerts available.",
     "no_commands": "No commands available.",
-    "unauthorized_user": "You are not authorized to use this bot."
+    "unauthorized_user": "You are not authorized to use this bot.",
+    "choose_device": "🪴 Select a device:",
+    "choose_report_device": "📊 Select a device for the report:",
+    "menu_title": "🌱 Main Menu",
+    "unknown_command": "🤖 Unknown command. Use /start or /help",
+    "devices_not_found": "⚠️ No devices found.",
+    "operation_failed": "⚠️ Operation failed."
   }
 }

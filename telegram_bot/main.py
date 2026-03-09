@@ -190,61 +190,61 @@ class TelegramPlantBot:
     def devices_keyboard(self, action_prefix: str) -> InlineKeyboardMarkup:
         kb = InlineKeyboardMarkup(row_width=1)
 
-        try:
-            devices = self.get_devices_map()
-            for device_id in devices.keys():
-                kb.add(
-                    InlineKeyboardButton(
-                        f"🪴 {device_id}",
-                        callback_data=f"{action_prefix}:{device_id}"
-                    )
+        devices = self.get_devices_map()
+        for device_id in devices.keys():
+            kb.add(
+                InlineKeyboardButton(
+                    f"🪴 {device_id}",
+                    callback_data=f"{action_prefix}:{device_id}"
                 )
-        except Exception:
-            pass
+            )
 
         kb.add(InlineKeyboardButton("⬅️ Back", callback_data="menu_back"))
         return kb
 
     # --------------------------------------------------
-    # Bot handlers
+    # Handlers registration
     # --------------------------------------------------
     def register_handlers(self) -> None:
         @self.bot.message_handler(commands=["start"])
-        def handle_start(message):
+        def start_handler(message):
             self.handle_start(message)
 
         @self.bot.message_handler(commands=["help"])
-        def handle_help(message):
+        def help_handler(message):
             self.handle_help(message)
 
         @self.bot.message_handler(commands=["devices"])
-        def handle_devices(message):
+        def devices_handler(message):
             self.handle_devices(message)
 
         @self.bot.message_handler(commands=["status"])
-        def handle_status(message):
+        def status_handler(message):
             self.handle_status(message)
 
         @self.bot.message_handler(commands=["alerts"])
-        def handle_alerts(message):
+        def alerts_handler(message):
             self.handle_alerts(message)
 
         @self.bot.message_handler(commands=["report"])
-        def handle_report(message):
+        def report_handler(message):
             self.handle_report(message)
 
         @self.bot.message_handler(commands=["commands"])
-        def handle_commands(message):
+        def commands_handler(message):
             self.handle_commands(message)
 
         @self.bot.callback_query_handler(func=lambda call: True)
-        def handle_callbacks(call):
+        def callback_handler(call):
             self.handle_callbacks(call)
 
         @self.bot.message_handler(func=lambda message: True)
-        def handle_unknown(message):
+        def unknown_handler(message):
             self.handle_unknown(message)
 
+    # --------------------------------------------------
+    # Message handlers
+    # --------------------------------------------------
     def handle_start(self, message) -> None:
         if not self.require_authorization_message(message):
             return
@@ -274,10 +274,10 @@ class TelegramPlantBot:
         try:
             devices = self.get_devices_map()
             if not devices:
-                self.bot.reply_to(message, "No devices found.")
+                self.bot.reply_to(message, self.config["messages"]["devices_not_found"])
                 return
 
-            text = "🪴 Devices:\n" + "\n".join(f"• {d}" for d in devices.keys())
+            text = "🪴 Devices:\n" + "\n".join(f"• {device_id}" for device_id in devices.keys())
             self.bot.reply_to(message, text)
 
         except requests.RequestException as e:
@@ -340,68 +340,82 @@ class TelegramPlantBot:
         except requests.RequestException as e:
             self.bot.reply_to(message, f"Failed to fetch command history: {e}")
 
+    # --------------------------------------------------
+    # Callback handlers
+    # --------------------------------------------------
     def handle_callbacks(self, call) -> None:
         if not self.require_authorization_callback(call):
             return
 
         try:
             if call.data == "menu_back":
-                self.bot.edit_message_text(
+                self.bot.send_message(
+                    call.message.chat.id,
                     self.config["messages"]["menu_title"],
-                    chat_id=call.message.chat.id,
-                    message_id=call.message.message_id,
                     reply_markup=self.main_menu_keyboard()
                 )
 
             elif call.data == "menu_help":
-                self.bot.edit_message_text(
+                self.bot.send_message(
+                    call.message.chat.id,
                     self.config["messages"]["help"],
-                    chat_id=call.message.chat.id,
-                    message_id=call.message.message_id,
                     reply_markup=self.main_menu_keyboard()
                 )
 
             elif call.data == "menu_devices":
-                self.bot.edit_message_text(
-                    self.config["messages"]["choose_device"],
-                    chat_id=call.message.chat.id,
-                    message_id=call.message.message_id,
-                    reply_markup=self.devices_keyboard("status")
-                )
+                devices = self.get_devices_map()
+
+                if not devices:
+                    self.bot.send_message(
+                        call.message.chat.id,
+                        self.config["messages"]["devices_not_found"],
+                        reply_markup=self.main_menu_keyboard()
+                    )
+                else:
+                    self.bot.send_message(
+                        call.message.chat.id,
+                        self.config["messages"]["choose_device"],
+                        reply_markup=self.devices_keyboard("status")
+                    )
 
             elif call.data == "menu_report_devices":
-                self.bot.edit_message_text(
-                    "📊 Choose a device for the report:",
-                    chat_id=call.message.chat.id,
-                    message_id=call.message.message_id,
-                    reply_markup=self.devices_keyboard("report")
-                )
+                devices = self.get_devices_map()
+
+                if not devices:
+                    self.bot.send_message(
+                        call.message.chat.id,
+                        self.config["messages"]["devices_not_found"],
+                        reply_markup=self.main_menu_keyboard()
+                    )
+                else:
+                    self.bot.send_message(
+                        call.message.chat.id,
+                        self.config["messages"]["choose_report_device"],
+                        reply_markup=self.devices_keyboard("report")
+                    )
 
             elif call.data == "menu_alerts":
                 data = self.safe_get_json(f"{self.runtime['alert_generator_url']}/alerts")
-                self.bot.edit_message_text(
+                self.bot.send_message(
+                    call.message.chat.id,
                     self.format_alerts(data.get("alerts", [])),
-                    chat_id=call.message.chat.id,
-                    message_id=call.message.message_id,
                     reply_markup=self.main_menu_keyboard()
                 )
 
             elif call.data == "menu_commands":
                 data = self.safe_get_json(f"{self.runtime['analytics_url']}/commands")
-                self.bot.edit_message_text(
+                self.bot.send_message(
+                    call.message.chat.id,
                     self.format_commands(data.get("commands", [])),
-                    chat_id=call.message.chat.id,
-                    message_id=call.message.message_id,
                     reply_markup=self.main_menu_keyboard()
                 )
 
             elif call.data.startswith("status:"):
                 device_id = call.data.split(":", 1)[1]
                 data = self.safe_get_json(f"{self.runtime['alert_generator_url']}/devices/{device_id}")
-                self.bot.edit_message_text(
+                self.bot.send_message(
+                    call.message.chat.id,
                     self.format_device_status(device_id, data),
-                    chat_id=call.message.chat.id,
-                    message_id=call.message.message_id,
                     reply_markup=self.devices_keyboard("status")
                 )
 
@@ -411,10 +425,9 @@ class TelegramPlantBot:
                     f"{self.runtime['alert_generator_url']}/report",
                     params={"device_id": device_id}
                 )
-                self.bot.edit_message_text(
+                self.bot.send_message(
+                    call.message.chat.id,
                     self.format_report(report),
-                    chat_id=call.message.chat.id,
-                    message_id=call.message.message_id,
                     reply_markup=self.devices_keyboard("report")
                 )
 
@@ -422,7 +435,11 @@ class TelegramPlantBot:
 
         except Exception as e:
             print(f"[BOT] Callback error: {e}")
-            self.bot.answer_callback_query(call.id, "Operation failed.")
+            self.bot.answer_callback_query(
+                call.id,
+                self.config["messages"].get("operation_failed", "Operation failed."),
+                show_alert=True
+            )
 
     def handle_unknown(self, message) -> None:
         if not self.require_authorization_message(message):
