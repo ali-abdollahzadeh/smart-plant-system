@@ -1,4 +1,7 @@
 {
+  "authorized_users": [
+    123456789
+  ],
   "commands": {
     "start": "/start",
     "help": "/help",
@@ -14,6 +17,7 @@
     "device_id_required": "Please provide a device_id. Example: /status raspi-01",
     "report_device_id_required": "Please provide a device_id. Example: /report raspi-01",
     "no_alerts": "No alerts available.",
-    "no_commands": "No commands available."
+    "no_commands": "No commands available.",
+    "unauthorized_user": "You are not authorized to use this bot."
   }
 }

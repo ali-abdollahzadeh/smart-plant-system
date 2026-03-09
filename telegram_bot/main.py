@@ -42,6 +42,25 @@ bot = telebot.TeleBot(RUNTIME["telegram_bot_token"])
 
 
 # --------------------------------------------------
+# Authorization
+# --------------------------------------------------
+def get_authorized_users() -> List[int]:
+    return APP_CONFIG.get("authorized_users", [])
+
+
+def is_authorized(message) -> bool:
+    user_id = message.from_user.id
+    return user_id in get_authorized_users()
+
+
+def require_authorization(message) -> bool:
+    if not is_authorized(message):
+        bot.reply_to(message, APP_CONFIG["messages"]["unauthorized"])
+        print(f"[SECURITY] Unauthorized access attempt from Telegram ID: {message.from_user.id}")
+        return False
+    return True
+
+# --------------------------------------------------
 # Service registration
 # --------------------------------------------------
 def register_service() -> None:
@@ -145,16 +164,26 @@ def format_report(report: Dict[str, Any]) -> str:
 # --------------------------------------------------
 @bot.message_handler(commands=["start"])
 def handle_start(message):
+    if not require_authorization(message):
+        return
+
     bot.reply_to(message, APP_CONFIG["messages"]["welcome"])
+    print(f"telegram user ID: {message.from_user.id}")
 
 
 @bot.message_handler(commands=["help"])
 def handle_help(message):
+    if not require_authorization(message):
+        return
+
     bot.reply_to(message, APP_CONFIG["messages"]["help"])
 
 
 @bot.message_handler(commands=["devices"])
 def handle_devices(message):
+    if not require_authorization(message):
+        return
+
     try:
         data = safe_get_json(f"{RUNTIME['alert_generator_url']}/devices")
         devices = data.get("devices", {})
@@ -172,6 +201,9 @@ def handle_devices(message):
 
 @bot.message_handler(commands=["status"])
 def handle_status(message):
+    if not require_authorization(message):
+        return
+
     parts = message.text.strip().split()
 
     if len(parts) < 2:
@@ -190,6 +222,9 @@ def handle_status(message):
 
 @bot.message_handler(commands=["alerts"])
 def handle_alerts(message):
+    if not require_authorization(message):
+        return
+
     try:
         data = safe_get_json(f"{RUNTIME['alert_generator_url']}/alerts")
         alerts = data.get("alerts", [])
@@ -201,6 +236,9 @@ def handle_alerts(message):
 
 @bot.message_handler(commands=["report"])
 def handle_report(message):
+    if not require_authorization(message):
+        return
+
     parts = message.text.strip().split()
 
     if len(parts) < 2:
@@ -222,6 +260,9 @@ def handle_report(message):
 
 @bot.message_handler(commands=["commands"])
 def handle_commands(message):
+    if not require_authorization(message):
+        return
+
     try:
         data = safe_get_json(f"{RUNTIME['analytics_url']}/commands")
         commands = data.get("commands", [])
@@ -233,6 +274,9 @@ def handle_commands(message):
 
 @bot.message_handler(func=lambda message: True)
 def handle_unknown(message):
+    if not require_authorization(message):
+        return
+
     bot.reply_to(message, "Unknown command. Use /help")
 
 
@@ -241,7 +285,7 @@ def handle_unknown(message):
 # --------------------------------------------------
 if __name__ == "__main__":
     print("[START] Telegram Bot starting...")
-
+    print(f"Authorized users: {get_authorized_users()}")
     threading.Thread(target=registration_loop, daemon=True).start()
 
     bot.infinity_polling(timeout=30, long_polling_timeout=20)

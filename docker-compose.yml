@@ -37,15 +37,15 @@ services:
       - mosquitto
       - catalogue
     restart: unless-stopped
-  analytics-control:
+  analytics:
     build: ./analytics
     container_name: analytics
     env_file:
       - .env
     environment:
-      SERVICE_ID: analytics-control
-      SERVICE_NAME: Analytics Control Service
-      SERVICE_TYPE: analytics_control
+      SERVICE_ID: analytics
+      SERVICE_NAME: Analytics Service
+      SERVICE_TYPE: analytics
       SERVICE_HOST: 0.0.0.0
       SERVICE_PORT: 8090
       CONFIG_FILE: /app/config.json
@@ -104,7 +104,7 @@ services:
       - alert-generator
       - analytics
     restart: unless-stopped
-    
+
   raspi-01:
     build: ./raspberry-pi
     container_name: raspi-01
