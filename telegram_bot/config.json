@@ -1,6 +1,7 @@
 {
   "authorized_users": [
-    123456789
+    107769791,
+    49156988
   ],
   "commands": {
     "start": "/start",
@@ -12,12 +13,12 @@
     "commands_history": "/commands"
   },
   "messages": {
-    "welcome": "Welcome to the Smart Plant Care System Bot.",
-    "help": "Available commands:\n/start - Start the bot\n/help - Show help\n/devices - Show registered devices from alert generator\n/status <device_id> - Show latest sensor values for one device\n/alerts - Show recent alerts\n/report <device_id> - Generate a report for one device\n/commands - Show control command history",
+    "welcome": "🌱 Welcome!\nYou currently have no plants assigned.\nPlants are assigned by the system.\n\nUse /help to see available commands.",
+    "help": "📋 Available Commands:\n\n/start - Start the bot\n/help - Show help\n/devices - Show registered devices from alert generator\n/status <device_id> - Show latest sensor values for one device\n/alerts - Show recent alerts\n/report <device_id> - Generate a report for one device\n/commands - Show control command history",
     "device_id_required": "Please provide a device_id. Example: /status raspi-01",
     "report_device_id_required": "Please provide a device_id. Example: /report raspi-01",
     "no_alerts": "No alerts available.",
     "no_commands": "No commands available.",
-    "unauthorized_user": "You are not authorized to use this bot."
+    "unauthorized": "You are not authorized to use this bot."
   }
 }
