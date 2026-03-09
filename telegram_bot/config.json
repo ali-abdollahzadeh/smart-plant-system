@@ -1,8 +1,4 @@
 {
-  "authorized_users": [
-    107769791,
-    49156988
-  ],
   "commands": {
     "start": "/start",
     "help": "/help",
@@ -25,6 +21,7 @@
     "menu_title": "🌱 Main Menu",
     "unknown_command": "🤖 Unknown command. Use /start or /help",
     "devices_not_found": "⚠️ No devices found.",
-    "operation_failed": "⚠️ Operation failed."
+    "operation_failed": "⚠️ Operation failed.",
+    "command_sent": "✅ Command sent successfully."
   }
 }

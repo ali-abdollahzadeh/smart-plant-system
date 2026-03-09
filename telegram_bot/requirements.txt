@@ -1,4 +1,3 @@
-# Smart Plant Care System - Telegram Bot
-
 requests==2.31.0
 pyTelegramBotAPI==4.15.4
+paho-mqtt==1.6.1

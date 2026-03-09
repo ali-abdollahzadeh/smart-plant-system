@@ -94,15 +94,21 @@ services:
       CATALOG_URL: http://catalogue:8000
       ALERT_GENERATOR_URL: http://alert-generator:8091
       ANALYTICS_URL: http://analytics:8090
+      MQTT_BROKER: mosquitto
+      MQTT_PORT: 1883
+      MQTT_ALERT_TOPIC: smartplant/alerts/#
+      MQTT_COMMAND_TOPIC_BASE: smartplant/commands
       SERVICE_ID: telegram-bot
       SERVICE_NAME: Telegram Bot
       SERVICE_TYPE: telegram_bot
       REGISTER_INTERVAL: 60
       CONFIG_FILE: /app/config.json
+      AUTH_FILE: /app/auth.json
     depends_on:
       - catalogue
       - alert-generator
       - analytics
+      - mosquitto
     restart: unless-stopped
 
   raspi-01:

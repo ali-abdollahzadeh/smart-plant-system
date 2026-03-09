@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 
 import requests
 import telebot
+import paho.mqtt.client as mqtt
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 
@@ -13,12 +14,18 @@ class TelegramPlantBot:
     def __init__(self) -> None:
         self.runtime = self.load_runtime_config()
         self.config = self.load_json(self.runtime["config_file"])
+        self.auth = self.load_json(self.runtime["auth_file"])
 
         token = self.runtime["telegram_bot_token"]
         if not token:
             raise ValueError("TELEGRAM_BOT_TOKEN is required")
 
         self.bot = telebot.TeleBot(token)
+
+        self.mqtt_client = mqtt.Client()
+        self.mqtt_client.on_connect = self.on_mqtt_connect
+        self.mqtt_client.on_message = self.on_mqtt_message
+
         self.register_handlers()
 
     # --------------------------------------------------
@@ -39,35 +46,38 @@ class TelegramPlantBot:
             "service_type": os.environ.get("SERVICE_TYPE", "telegram_bot"),
             "register_interval": int(os.environ.get("REGISTER_INTERVAL", 60)),
             "config_file": os.environ.get("CONFIG_FILE", "/app/config.json"),
+            "auth_file": os.environ.get("AUTH_FILE", "/app/auth.json"),
+            "mqtt_broker": os.environ.get("MQTT_BROKER", "mosquitto"),
+            "mqtt_port": int(os.environ.get("MQTT_PORT", 1883)),
+            "mqtt_alert_topic": os.environ.get("MQTT_ALERT_TOPIC", "smartplant/alerts/#"),
+            "mqtt_command_topic_base": os.environ.get("MQTT_COMMAND_TOPIC_BASE", "smartplant/commands"),
         }
 
     # --------------------------------------------------
     # Authorization
     # --------------------------------------------------
     def get_authorized_users(self) -> List[int]:
-        return self.config.get("authorized_users", [])
+        return self.auth.get("authorized_users", [])
+
+    def get_user_devices(self, user_id: int) -> List[str]:
+        return self.auth.get("user_devices", {}).get(str(user_id), [])
 
     def is_authorized_user_id(self, user_id: int) -> bool:
         return user_id in self.get_authorized_users()
 
+    def is_device_allowed_for_user(self, user_id: int, device_id: str) -> bool:
+        return device_id in self.get_user_devices(user_id)
+
     def require_authorization_message(self, message) -> bool:
         if not self.is_authorized_user_id(message.from_user.id):
-            unauthorized_message = self.config.get("messages", {}).get(
-                "unauthorized",
-                "You are not authorized to use this bot."
-            )
-            self.bot.reply_to(message, unauthorized_message)
+            self.bot.reply_to(message, self.config["messages"]["unauthorized"])
             print(f"[SECURITY] Unauthorized access attempt from Telegram ID: {message.from_user.id}")
             return False
         return True
 
     def require_authorization_callback(self, call) -> bool:
         if not self.is_authorized_user_id(call.from_user.id):
-            unauthorized_message = self.config.get("messages", {}).get(
-                "unauthorized",
-                "You are not authorized to use this bot."
-            )
-            self.bot.answer_callback_query(call.id, unauthorized_message, show_alert=True)
+            self.bot.answer_callback_query(call.id, self.config["messages"]["unauthorized"], show_alert=True)
             print(f"[SECURITY] Unauthorized callback attempt from Telegram ID: {call.from_user.id}")
             return False
         return True
@@ -105,7 +115,7 @@ class TelegramPlantBot:
             time.sleep(self.runtime["register_interval"])
 
     # --------------------------------------------------
-    # API helpers
+    # REST helpers
     # --------------------------------------------------
     def safe_get_json(self, url: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         response = requests.get(url, params=params, timeout=15)
@@ -115,6 +125,113 @@ class TelegramPlantBot:
     def get_devices_map(self) -> Dict[str, Any]:
         data = self.safe_get_json(f"{self.runtime['alert_generator_url']}/devices")
         return data.get("devices", {})
+
+    def get_allowed_devices_map(self, user_id: int) -> Dict[str, Any]:
+        all_devices = self.get_devices_map()
+        allowed = self.get_user_devices(user_id)
+        return {device_id: data for device_id, data in all_devices.items() if device_id in allowed}
+
+    # --------------------------------------------------
+    # MQTT
+    # --------------------------------------------------
+    def command_topic(self, device_id: str) -> str:
+        return f"{self.runtime['mqtt_command_topic_base']}/{device_id}"
+
+    def on_mqtt_connect(self, client, userdata, flags, rc):
+        if rc == 0:
+            client.subscribe(self.runtime["mqtt_alert_topic"])
+            print(f"[MQTT] Connected to {self.runtime['mqtt_broker']}:{self.runtime['mqtt_port']}")
+            print(f"[MQTT] Subscribed to {self.runtime['mqtt_alert_topic']}")
+        else:
+            print(f"[MQTT] Connection failed with rc={rc}")
+
+    def on_mqtt_message(self, client, userdata, msg):
+        try:
+            payload = json.loads(msg.payload.decode("utf-8"))
+            print(f"[MQTT] Alert received: {payload}")
+            self.notify_users_for_alert(payload)
+        except Exception as e:
+            print(f"[MQTT] Alert processing error: {e}")
+
+    def mqtt_loop(self) -> None:
+        while True:
+            try:
+                self.mqtt_client.connect(
+                    self.runtime["mqtt_broker"],
+                    self.runtime["mqtt_port"],
+                    keepalive=60
+                )
+                self.mqtt_client.loop_forever()
+            except Exception as e:
+                print(f"[MQTT] Connection error: {e}")
+                time.sleep(5)
+
+    def publish_command(self, device_id: str, command: str, reason: str, sensor_type: str) -> None:
+        payload = {
+            "device_id": device_id,
+            "command": command,
+            "reason": reason,
+            "sensor_type": sensor_type,
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        }
+
+        topic = self.command_topic(device_id)
+        self.mqtt_client.publish(topic, json.dumps(payload))
+        print(f"[MQTT] Published command to {topic}: {payload}")
+
+    # --------------------------------------------------
+    # Alert notification logic
+    # --------------------------------------------------
+    def format_alert_message(self, alert: Dict[str, Any]) -> str:
+        return (
+            f"🚨 Alert for {alert.get('device_id')}\n"
+            f"Type: {alert.get('alert')}\n"
+            f"Value: {alert.get('value')}\n"
+            f"Threshold: {alert.get('threshold')}\n"
+            f"Time: {alert.get('timestamp')}"
+        )
+
+    def alert_actions_keyboard(self, device_id: str, alert_type: str) -> InlineKeyboardMarkup:
+        kb = InlineKeyboardMarkup(row_width=2)
+
+        if "temperature" in alert_type:
+            kb.add(
+                InlineKeyboardButton("❄️ Start Cooling", callback_data=f"cmd:{device_id}:start_cooling:temperature"),
+                InlineKeyboardButton("🔥 Start Heating", callback_data=f"cmd:{device_id}:start_heating:temperature")
+            )
+
+        elif "humidity" in alert_type:
+            kb.add(
+                InlineKeyboardButton("💨 Increase Humidity", callback_data=f"cmd:{device_id}:increase_humidity:humidity"),
+                InlineKeyboardButton("🌬 Decrease Humidity", callback_data=f"cmd:{device_id}:decrease_humidity:humidity")
+            )
+
+        elif "soil_moisture" in alert_type:
+            kb.add(
+                InlineKeyboardButton("💧 Increase Watering", callback_data=f"cmd:{device_id}:increase_watering:soil_moisture"),
+                InlineKeyboardButton("🚱 Reduce Watering", callback_data=f"cmd:{device_id}:reduce_watering:soil_moisture")
+            )
+
+        kb.add(InlineKeyboardButton("⬅️ Back", callback_data="menu_back"))
+        return kb
+
+    def notify_users_for_alert(self, alert: Dict[str, Any]) -> None:
+        device_id = alert.get("device_id")
+        alert_type = alert.get("alert", "")
+
+        if not device_id:
+            return
+
+        for user_id in self.get_authorized_users():
+            if self.is_device_allowed_for_user(user_id, device_id):
+                try:
+                    self.bot.send_message(
+                        user_id,
+                        self.format_alert_message(alert),
+                        reply_markup=self.alert_actions_keyboard(device_id, alert_type)
+                    )
+                except Exception as e:
+                    print(f"[BOT] Failed to notify user {user_id} for device {device_id}: {e}")
 
     # --------------------------------------------------
     # Formatters
@@ -137,18 +254,6 @@ class TelegramPlantBot:
             lines.append(
                 f"• {alert.get('device_id')} | {alert.get('alert')} | "
                 f"value={alert.get('value')} | threshold={alert.get('threshold')}"
-            )
-        return "\n".join(lines)
-
-    def format_commands(self, commands: List[Dict[str, Any]]) -> str:
-        if not commands:
-            return self.config["messages"]["no_commands"]
-
-        lines = ["⚙️ Recent Commands:"]
-        for command in commands[-5:]:
-            lines.append(
-                f"• {command.get('device_id')} | {command.get('command')} | "
-                f"{command.get('reason')}"
             )
         return "\n".join(lines)
 
@@ -180,17 +285,17 @@ class TelegramPlantBot:
         )
         kb.add(
             InlineKeyboardButton("📊 Report", callback_data="menu_report_devices"),
-            InlineKeyboardButton("⚙️ Commands", callback_data="menu_commands")
+            InlineKeyboardButton("⚙️ Commands", callback_data="menu_command_devices")
         )
         kb.add(
             InlineKeyboardButton("❓ Help", callback_data="menu_help")
         )
         return kb
 
-    def devices_keyboard(self, action_prefix: str) -> InlineKeyboardMarkup:
+    def devices_keyboard_for_user(self, user_id: int, action_prefix: str) -> InlineKeyboardMarkup:
         kb = InlineKeyboardMarkup(row_width=1)
+        devices = self.get_allowed_devices_map(user_id)
 
-        devices = self.get_devices_map()
         for device_id in devices.keys():
             kb.add(
                 InlineKeyboardButton(
@@ -199,6 +304,31 @@ class TelegramPlantBot:
                 )
             )
 
+        kb.add(InlineKeyboardButton("⬅️ Back", callback_data="menu_back"))
+        return kb
+
+    def command_actions_keyboard(self, device_id: str) -> InlineKeyboardMarkup:
+        kb = InlineKeyboardMarkup(row_width=2)
+
+        kb.add(
+            InlineKeyboardButton("❄️ Start Cooling", callback_data=f"cmd:{device_id}:start_cooling:temperature"),
+            InlineKeyboardButton("🔥 Start Heating", callback_data=f"cmd:{device_id}:start_heating:temperature")
+        )
+        kb.add(
+            InlineKeyboardButton("💧 Increase Watering", callback_data=f"cmd:{device_id}:increase_watering:soil_moisture"),
+            InlineKeyboardButton("🚱 Reduce Watering", callback_data=f"cmd:{device_id}:reduce_watering:soil_moisture")
+        )
+        kb.add(
+            InlineKeyboardButton("💨 Increase Humidity", callback_data=f"cmd:{device_id}:increase_humidity:humidity"),
+            InlineKeyboardButton("🌬 Decrease Humidity", callback_data=f"cmd:{device_id}:decrease_humidity:humidity")
+        )
+        kb.add(
+            InlineKeyboardButton("🛑 Stop Temp Control", callback_data=f"cmd:{device_id}:stop_temperature_control:temperature"),
+            InlineKeyboardButton("🛑 Stop Humidity", callback_data=f"cmd:{device_id}:stop_humidity_adjustment:humidity")
+        )
+        kb.add(
+            InlineKeyboardButton("🛑 Stop Watering", callback_data=f"cmd:{device_id}:stop_watering_adjustment:soil_moisture")
+        )
         kb.add(InlineKeyboardButton("⬅️ Back", callback_data="menu_back"))
         return kb
 
@@ -230,10 +360,6 @@ class TelegramPlantBot:
         def report_handler(message):
             self.handle_report(message)
 
-        @self.bot.message_handler(commands=["commands"])
-        def commands_handler(message):
-            self.handle_commands(message)
-
         @self.bot.callback_query_handler(func=lambda call: True)
         def callback_handler(call):
             self.handle_callbacks(call)
@@ -248,13 +374,6 @@ class TelegramPlantBot:
     def handle_start(self, message) -> None:
         if not self.require_authorization_message(message):
             return
-
-        ui_cfg = self.config.get("ui", {})
-        if ui_cfg.get("send_sticker_on_start") and ui_cfg.get("plant_sticker_file_id"):
-            try:
-                self.bot.send_sticker(message.chat.id, ui_cfg["plant_sticker_file_id"])
-            except Exception as e:
-                print(f"[BOT] Failed to send sticker: {e}")
 
         self.bot.send_message(
             message.chat.id,
@@ -272,12 +391,12 @@ class TelegramPlantBot:
             return
 
         try:
-            devices = self.get_devices_map()
+            devices = self.get_allowed_devices_map(message.from_user.id)
             if not devices:
                 self.bot.reply_to(message, self.config["messages"]["devices_not_found"])
                 return
 
-            text = "🪴 Devices:\n" + "\n".join(f"• {device_id}" for device_id in devices.keys())
+            text = "🪴 Your Devices:\n" + "\n".join(f"• {device_id}" for device_id in devices.keys())
             self.bot.reply_to(message, text)
 
         except requests.RequestException as e:
@@ -294,6 +413,10 @@ class TelegramPlantBot:
 
         device_id = parts[1]
 
+        if not self.is_device_allowed_for_user(message.from_user.id, device_id):
+            self.bot.reply_to(message, self.config["messages"]["device_not_allowed"])
+            return
+
         try:
             data = self.safe_get_json(f"{self.runtime['alert_generator_url']}/devices/{device_id}")
             self.bot.reply_to(message, self.format_device_status(device_id, data))
@@ -306,7 +429,11 @@ class TelegramPlantBot:
 
         try:
             data = self.safe_get_json(f"{self.runtime['alert_generator_url']}/alerts")
-            self.bot.reply_to(message, self.format_alerts(data.get("alerts", [])))
+            alerts = [
+                a for a in data.get("alerts", [])
+                if self.is_device_allowed_for_user(message.from_user.id, a.get("device_id", ""))
+            ]
+            self.bot.reply_to(message, self.format_alerts(alerts))
         except requests.RequestException as e:
             self.bot.reply_to(message, f"Failed to fetch alerts: {e}")
 
@@ -321,6 +448,10 @@ class TelegramPlantBot:
 
         device_id = parts[1]
 
+        if not self.is_device_allowed_for_user(message.from_user.id, device_id):
+            self.bot.reply_to(message, self.config["messages"]["device_not_allowed"])
+            return
+
         try:
             report = self.safe_get_json(
                 f"{self.runtime['alert_generator_url']}/report",
@@ -330,16 +461,6 @@ class TelegramPlantBot:
         except requests.RequestException as e:
             self.bot.reply_to(message, f"Failed to fetch report: {e}")
 
-    def handle_commands(self, message) -> None:
-        if not self.require_authorization_message(message):
-            return
-
-        try:
-            data = self.safe_get_json(f"{self.runtime['analytics_url']}/commands")
-            self.bot.reply_to(message, self.format_commands(data.get("commands", [])))
-        except requests.RequestException as e:
-            self.bot.reply_to(message, f"Failed to fetch command history: {e}")
-
     # --------------------------------------------------
     # Callback handlers
     # --------------------------------------------------
@@ -348,6 +469,8 @@ class TelegramPlantBot:
             return
 
         try:
+            user_id = call.from_user.id
+
             if call.data == "menu_back":
                 self.bot.send_message(
                     call.message.chat.id,
@@ -363,7 +486,7 @@ class TelegramPlantBot:
                 )
 
             elif call.data == "menu_devices":
-                devices = self.get_devices_map()
+                devices = self.get_allowed_devices_map(user_id)
 
                 if not devices:
                     self.bot.send_message(
@@ -375,11 +498,11 @@ class TelegramPlantBot:
                     self.bot.send_message(
                         call.message.chat.id,
                         self.config["messages"]["choose_device"],
-                        reply_markup=self.devices_keyboard("status")
+                        reply_markup=self.devices_keyboard_for_user(user_id, "status")
                     )
 
             elif call.data == "menu_report_devices":
-                devices = self.get_devices_map()
+                devices = self.get_allowed_devices_map(user_id)
 
                 if not devices:
                     self.bot.send_message(
@@ -391,45 +514,99 @@ class TelegramPlantBot:
                     self.bot.send_message(
                         call.message.chat.id,
                         self.config["messages"]["choose_report_device"],
-                        reply_markup=self.devices_keyboard("report")
+                        reply_markup=self.devices_keyboard_for_user(user_id, "report")
+                    )
+
+            elif call.data == "menu_command_devices":
+                devices = self.get_allowed_devices_map(user_id)
+
+                if not devices:
+                    self.bot.send_message(
+                        call.message.chat.id,
+                        self.config["messages"]["devices_not_found"],
+                        reply_markup=self.main_menu_keyboard()
+                    )
+                else:
+                    self.bot.send_message(
+                        call.message.chat.id,
+                        self.config["messages"]["choose_command_device"],
+                        reply_markup=self.devices_keyboard_for_user(user_id, "command_device")
                     )
 
             elif call.data == "menu_alerts":
                 data = self.safe_get_json(f"{self.runtime['alert_generator_url']}/alerts")
+                alerts = [
+                    a for a in data.get("alerts", [])
+                    if self.is_device_allowed_for_user(user_id, a.get("device_id", ""))
+                ]
                 self.bot.send_message(
                     call.message.chat.id,
-                    self.format_alerts(data.get("alerts", [])),
-                    reply_markup=self.main_menu_keyboard()
-                )
-
-            elif call.data == "menu_commands":
-                data = self.safe_get_json(f"{self.runtime['analytics_url']}/commands")
-                self.bot.send_message(
-                    call.message.chat.id,
-                    self.format_commands(data.get("commands", [])),
+                    self.format_alerts(alerts),
                     reply_markup=self.main_menu_keyboard()
                 )
 
             elif call.data.startswith("status:"):
                 device_id = call.data.split(":", 1)[1]
-                data = self.safe_get_json(f"{self.runtime['alert_generator_url']}/devices/{device_id}")
-                self.bot.send_message(
-                    call.message.chat.id,
-                    self.format_device_status(device_id, data),
-                    reply_markup=self.devices_keyboard("status")
-                )
+
+                if not self.is_device_allowed_for_user(user_id, device_id):
+                    self.bot.send_message(call.message.chat.id, self.config["messages"]["device_not_allowed"])
+                else:
+                    data = self.safe_get_json(f"{self.runtime['alert_generator_url']}/devices/{device_id}")
+                    self.bot.send_message(
+                        call.message.chat.id,
+                        self.format_device_status(device_id, data),
+                        reply_markup=self.devices_keyboard_for_user(user_id, "status")
+                    )
 
             elif call.data.startswith("report:"):
                 device_id = call.data.split(":", 1)[1]
-                report = self.safe_get_json(
-                    f"{self.runtime['alert_generator_url']}/report",
-                    params={"device_id": device_id}
-                )
-                self.bot.send_message(
-                    call.message.chat.id,
-                    self.format_report(report),
-                    reply_markup=self.devices_keyboard("report")
-                )
+
+                if not self.is_device_allowed_for_user(user_id, device_id):
+                    self.bot.send_message(call.message.chat.id, self.config["messages"]["device_not_allowed"])
+                else:
+                    report = self.safe_get_json(
+                        f"{self.runtime['alert_generator_url']}/report",
+                        params={"device_id": device_id}
+                    )
+                    self.bot.send_message(
+                        call.message.chat.id,
+                        self.format_report(report),
+                        reply_markup=self.devices_keyboard_for_user(user_id, "report")
+                    )
+
+            elif call.data.startswith("command_device:"):
+                device_id = call.data.split(":", 1)[1]
+
+                if not self.is_device_allowed_for_user(user_id, device_id):
+                    self.bot.send_message(call.message.chat.id, self.config["messages"]["device_not_allowed"])
+                else:
+                    self.bot.send_message(
+                        call.message.chat.id,
+                        f"{self.config['messages']['choose_command_action']}\nDevice: {device_id}",
+                        reply_markup=self.command_actions_keyboard(device_id)
+                    )
+
+            elif call.data.startswith("cmd:"):
+                parts = call.data.split(":")
+                if len(parts) != 4:
+                    raise ValueError("Invalid command callback format")
+
+                _, device_id, command, sensor_type = parts
+
+                if not self.is_device_allowed_for_user(user_id, device_id):
+                    self.bot.send_message(call.message.chat.id, self.config["messages"]["device_not_allowed"])
+                else:
+                    self.publish_command(
+                        device_id=device_id,
+                        command=command,
+                        reason="telegram_user_command",
+                        sensor_type=sensor_type
+                    )
+                    self.bot.send_message(
+                        call.message.chat.id,
+                        f"{self.config['messages']['command_sent']}\nDevice: {device_id}\nCommand: {command}",
+                        reply_markup=self.command_actions_keyboard(device_id)
+                    )
 
             self.bot.answer_callback_query(call.id)
 
@@ -454,6 +631,8 @@ class TelegramPlantBot:
         print(f"[INFO] Authorized users: {self.get_authorized_users()}")
 
         threading.Thread(target=self.registration_loop, daemon=True).start()
+        threading.Thread(target=self.mqtt_loop, daemon=True).start()
+
         self.bot.infinity_polling(timeout=30, long_polling_timeout=20)
 
 
