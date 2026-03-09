@@ -19,5 +19,9 @@
     "no_alerts": "No alerts available.",
     "no_commands": "No commands available.",
     "unauthorized_user": "You are not authorized to use this bot."
+  },
+  "ui": {
+  "send_sticker_on_start": true,
+  "plant_sticker_file_id": "YOUR_STICKER_FILE_ID"
   }
 }
