@@ -83,6 +83,28 @@ services:
       - mosquitto
       - thingspeak-adapter
     restart: unless-stopped
+
+  telegram-bot:
+    build: ./telegram_bot
+    container_name: telegram-bot
+    env_file:
+      - .env
+    environment:
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      CATALOG_URL: http://catalogue:8000
+      ALERT_GENERATOR_URL: http://alert-generator:8091
+      ANALYTICS_URL: http://analytics:8090
+      SERVICE_ID: telegram-bot
+      SERVICE_NAME: Telegram Bot
+      SERVICE_TYPE: telegram_bot
+      REGISTER_INTERVAL: 60
+      CONFIG_FILE: /app/config.json
+    depends_on:
+      - catalogue
+      - alert-generator
+      - analytics
+    restart: unless-stopped
+    
   raspi-01:
     build: ./raspberry-pi
     container_name: raspi-01

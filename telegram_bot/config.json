@@ -1,0 +1,19 @@
+{
+  "commands": {
+    "start": "/start",
+    "help": "/help",
+    "devices": "/devices",
+    "status": "/status",
+    "alerts": "/alerts",
+    "report": "/report",
+    "commands_history": "/commands"
+  },
+  "messages": {
+    "welcome": "Welcome to the Smart Plant Care System Bot.",
+    "help": "Available commands:\n/start - Start the bot\n/help - Show help\n/devices - Show registered devices from alert generator\n/status <device_id> - Show latest sensor values for one device\n/alerts - Show recent alerts\n/report <device_id> - Generate a report for one device\n/commands - Show control command history",
+    "device_id_required": "Please provide a device_id. Example: /status raspi-01",
+    "report_device_id_required": "Please provide a device_id. Example: /report raspi-01",
+    "no_alerts": "No alerts available.",
+    "no_commands": "No commands available."
+  }
+}
