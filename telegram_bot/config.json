@@ -9,19 +9,22 @@
     "commands_history": "/commands"
   },
   "messages": {
-    "welcome": "🌱 Welcome!\nYou currently have no plants assigned.\nPlants are assigned by the system.\n\nUse /help to see available commands.",
-    "help": "📋 Available Commands:\n\n/start - Start the bot\n/help - Show help\n/devices - Show registered devices from alert generator\n/status <device_id> - Show latest sensor values for one device\n/alerts - Show recent alerts\n/report <device_id> - Generate a report for one device\n/commands - Show control command history",
-    "device_id_required": "Please provide a device_id. Example: /status raspi-01",
-    "report_device_id_required": "Please provide a device_id. Example: /report raspi-01",
-    "no_alerts": "No alerts available.",
-    "no_commands": "No commands available.",
-    "unauthorized_user": "You are not authorized to use this bot.",
-    "choose_device": "🪴 Select a device:",
-    "choose_report_device": "📊 Select a device for the report:",
+    "welcome": "🪴 Welcome to the Smart Plant Care System Bot.\nChoose an action below.",
+    "help": "🌱 Available commands:\n/start - Open the main menu\n/help - Show help\n/devices - Show your devices\n/status <device_id> - Show latest sensor values\n/alerts - Show recent alerts\n/report <device_id> - Generate a report",
+    "device_id_required": "🌿 Please provide a device_id.\nExample: /status raspi-01",
+    "report_device_id_required": "🌿 Please provide a device_id.\nExample: /report raspi-01",
+    "no_alerts": "✅ No alerts available.",
+    "unauthorized": "🚫 You are not authorized to use this bot.",
+    "device_not_allowed": "🚫 You are not allowed to access this device.",
+    "choose_device": "🪴 Select one of your devices:",
+    "choose_report_device": "📊 Select one of your devices for the report:",
+    "choose_command_device": "⚙️ Select a device to control:",
+    "choose_command_action": "⚙️ Choose a command for this device:",
     "menu_title": "🌱 Main Menu",
     "unknown_command": "🤖 Unknown command. Use /start or /help",
     "devices_not_found": "⚠️ No devices found.",
     "operation_failed": "⚠️ Operation failed.",
     "command_sent": "✅ Command sent successfully."
   }
+
 }

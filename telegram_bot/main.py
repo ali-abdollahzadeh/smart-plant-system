@@ -54,6 +54,12 @@ class TelegramPlantBot:
         }
 
     # --------------------------------------------------
+    # Safe message lookup
+    # --------------------------------------------------
+    def msg(self, key: str, default: str = "") -> str:
+        return self.config.get("messages", {}).get(key, default)
+
+    # --------------------------------------------------
     # Authorization
     # --------------------------------------------------
     def get_authorized_users(self) -> List[int]:
@@ -70,14 +76,21 @@ class TelegramPlantBot:
 
     def require_authorization_message(self, message) -> bool:
         if not self.is_authorized_user_id(message.from_user.id):
-            self.bot.reply_to(message, self.config["messages"]["unauthorized"])
+            self.bot.reply_to(
+                message,
+                self.msg("unauthorized", "🚫 You are not authorized to use this bot.")
+            )
             print(f"[SECURITY] Unauthorized access attempt from Telegram ID: {message.from_user.id}")
             return False
         return True
 
     def require_authorization_callback(self, call) -> bool:
         if not self.is_authorized_user_id(call.from_user.id):
-            self.bot.answer_callback_query(call.id, self.config["messages"]["unauthorized"], show_alert=True)
+            self.bot.answer_callback_query(
+                call.id,
+                self.msg("unauthorized", "🚫 You are not authorized to use this bot."),
+                show_alert=True
+            )
             print(f"[SECURITY] Unauthorized callback attempt from Telegram ID: {call.from_user.id}")
             return False
         return True
@@ -231,7 +244,10 @@ class TelegramPlantBot:
                         reply_markup=self.alert_actions_keyboard(device_id, alert_type)
                     )
                 except Exception as e:
-                    print(f"[BOT] Failed to notify user {user_id} for device {device_id}: {e}")
+                    print(
+                        f"[BOT] Failed to notify user {user_id} for device {device_id}: {e}. "
+                        f"Make sure this is a real Telegram ID and that the user started the bot with /start."
+                    )
 
     # --------------------------------------------------
     # Formatters
@@ -247,7 +263,7 @@ class TelegramPlantBot:
 
     def format_alerts(self, alerts: List[Dict[str, Any]]) -> str:
         if not alerts:
-            return self.config["messages"]["no_alerts"]
+            return self.msg("no_alerts", "✅ No alerts available.")
 
         lines = ["🚨 Recent Alerts:"]
         for alert in alerts[-5:]:
@@ -377,14 +393,17 @@ class TelegramPlantBot:
 
         self.bot.send_message(
             message.chat.id,
-            self.config["messages"]["welcome"],
+            self.msg("welcome", "🪴 Welcome to the Smart Plant Care System Bot.\nChoose an action below."),
             reply_markup=self.main_menu_keyboard()
         )
 
     def handle_help(self, message) -> None:
         if not self.require_authorization_message(message):
             return
-        self.bot.reply_to(message, self.config["messages"]["help"])
+        self.bot.reply_to(
+            message,
+            self.msg("help", "Use /start to open the menu.")
+        )
 
     def handle_devices(self, message) -> None:
         if not self.require_authorization_message(message):
@@ -393,7 +412,7 @@ class TelegramPlantBot:
         try:
             devices = self.get_allowed_devices_map(message.from_user.id)
             if not devices:
-                self.bot.reply_to(message, self.config["messages"]["devices_not_found"])
+                self.bot.reply_to(message, self.msg("devices_not_found", "⚠️ No devices found."))
                 return
 
             text = "🪴 Your Devices:\n" + "\n".join(f"• {device_id}" for device_id in devices.keys())
@@ -408,13 +427,16 @@ class TelegramPlantBot:
 
         parts = message.text.strip().split()
         if len(parts) < 2:
-            self.bot.reply_to(message, self.config["messages"]["device_id_required"])
+            self.bot.reply_to(
+                message,
+                self.msg("device_id_required", "🌿 Please provide a device_id.\nExample: /status raspi-01")
+            )
             return
 
         device_id = parts[1]
 
         if not self.is_device_allowed_for_user(message.from_user.id, device_id):
-            self.bot.reply_to(message, self.config["messages"]["device_not_allowed"])
+            self.bot.reply_to(message, self.msg("device_not_allowed", "🚫 You are not allowed to access this device."))
             return
 
         try:
@@ -443,13 +465,16 @@ class TelegramPlantBot:
 
         parts = message.text.strip().split()
         if len(parts) < 2:
-            self.bot.reply_to(message, self.config["messages"]["report_device_id_required"])
+            self.bot.reply_to(
+                message,
+                self.msg("report_device_id_required", "🌿 Please provide a device_id.\nExample: /report raspi-01")
+            )
             return
 
         device_id = parts[1]
 
         if not self.is_device_allowed_for_user(message.from_user.id, device_id):
-            self.bot.reply_to(message, self.config["messages"]["device_not_allowed"])
+            self.bot.reply_to(message, self.msg("device_not_allowed", "🚫 You are not allowed to access this device."))
             return
 
         try:
@@ -474,14 +499,14 @@ class TelegramPlantBot:
             if call.data == "menu_back":
                 self.bot.send_message(
                     call.message.chat.id,
-                    self.config["messages"]["menu_title"],
+                    self.msg("menu_title", "🌱 Main Menu"),
                     reply_markup=self.main_menu_keyboard()
                 )
 
             elif call.data == "menu_help":
                 self.bot.send_message(
                     call.message.chat.id,
-                    self.config["messages"]["help"],
+                    self.msg("help", "Use /start to open the menu."),
                     reply_markup=self.main_menu_keyboard()
                 )
 
@@ -491,13 +516,13 @@ class TelegramPlantBot:
                 if not devices:
                     self.bot.send_message(
                         call.message.chat.id,
-                        self.config["messages"]["devices_not_found"],
+                        self.msg("devices_not_found", "⚠️ No devices found."),
                         reply_markup=self.main_menu_keyboard()
                     )
                 else:
                     self.bot.send_message(
                         call.message.chat.id,
-                        self.config["messages"]["choose_device"],
+                        self.msg("choose_device", "🪴 Select one of your devices:"),
                         reply_markup=self.devices_keyboard_for_user(user_id, "status")
                     )
 
@@ -507,13 +532,13 @@ class TelegramPlantBot:
                 if not devices:
                     self.bot.send_message(
                         call.message.chat.id,
-                        self.config["messages"]["devices_not_found"],
+                        self.msg("devices_not_found", "⚠️ No devices found."),
                         reply_markup=self.main_menu_keyboard()
                     )
                 else:
                     self.bot.send_message(
                         call.message.chat.id,
-                        self.config["messages"]["choose_report_device"],
+                        self.msg("choose_report_device", "📊 Select one of your devices for the report:"),
                         reply_markup=self.devices_keyboard_for_user(user_id, "report")
                     )
 
@@ -523,13 +548,13 @@ class TelegramPlantBot:
                 if not devices:
                     self.bot.send_message(
                         call.message.chat.id,
-                        self.config["messages"]["devices_not_found"],
+                        self.msg("devices_not_found", "⚠️ No devices found."),
                         reply_markup=self.main_menu_keyboard()
                     )
                 else:
                     self.bot.send_message(
                         call.message.chat.id,
-                        self.config["messages"]["choose_command_device"],
+                        self.msg("choose_command_device", "⚙️ Select a device to control:"),
                         reply_markup=self.devices_keyboard_for_user(user_id, "command_device")
                     )
 
@@ -549,7 +574,10 @@ class TelegramPlantBot:
                 device_id = call.data.split(":", 1)[1]
 
                 if not self.is_device_allowed_for_user(user_id, device_id):
-                    self.bot.send_message(call.message.chat.id, self.config["messages"]["device_not_allowed"])
+                    self.bot.send_message(
+                        call.message.chat.id,
+                        self.msg("device_not_allowed", "🚫 You are not allowed to access this device.")
+                    )
                 else:
                     data = self.safe_get_json(f"{self.runtime['alert_generator_url']}/devices/{device_id}")
                     self.bot.send_message(
@@ -562,7 +590,10 @@ class TelegramPlantBot:
                 device_id = call.data.split(":", 1)[1]
 
                 if not self.is_device_allowed_for_user(user_id, device_id):
-                    self.bot.send_message(call.message.chat.id, self.config["messages"]["device_not_allowed"])
+                    self.bot.send_message(
+                        call.message.chat.id,
+                        self.msg("device_not_allowed", "🚫 You are not allowed to access this device.")
+                    )
                 else:
                     report = self.safe_get_json(
                         f"{self.runtime['alert_generator_url']}/report",
@@ -578,11 +609,14 @@ class TelegramPlantBot:
                 device_id = call.data.split(":", 1)[1]
 
                 if not self.is_device_allowed_for_user(user_id, device_id):
-                    self.bot.send_message(call.message.chat.id, self.config["messages"]["device_not_allowed"])
+                    self.bot.send_message(
+                        call.message.chat.id,
+                        self.msg("device_not_allowed", "🚫 You are not allowed to access this device.")
+                    )
                 else:
                     self.bot.send_message(
                         call.message.chat.id,
-                        f"{self.config['messages']['choose_command_action']}\nDevice: {device_id}",
+                        f"{self.msg('choose_command_action', '⚙️ Choose a command for this device:')}\nDevice: {device_id}",
                         reply_markup=self.command_actions_keyboard(device_id)
                     )
 
@@ -594,7 +628,10 @@ class TelegramPlantBot:
                 _, device_id, command, sensor_type = parts
 
                 if not self.is_device_allowed_for_user(user_id, device_id):
-                    self.bot.send_message(call.message.chat.id, self.config["messages"]["device_not_allowed"])
+                    self.bot.send_message(
+                        call.message.chat.id,
+                        self.msg("device_not_allowed", "🚫 You are not allowed to access this device.")
+                    )
                 else:
                     self.publish_command(
                         device_id=device_id,
@@ -604,7 +641,7 @@ class TelegramPlantBot:
                     )
                     self.bot.send_message(
                         call.message.chat.id,
-                        f"{self.config['messages']['command_sent']}\nDevice: {device_id}\nCommand: {command}",
+                        f"{self.msg('command_sent', '✅ Command sent successfully.')}\nDevice: {device_id}\nCommand: {command}",
                         reply_markup=self.command_actions_keyboard(device_id)
                     )
 
@@ -614,14 +651,17 @@ class TelegramPlantBot:
             print(f"[BOT] Callback error: {e}")
             self.bot.answer_callback_query(
                 call.id,
-                self.config["messages"].get("operation_failed", "Operation failed."),
+                self.msg("operation_failed", "⚠️ Operation failed."),
                 show_alert=True
             )
 
     def handle_unknown(self, message) -> None:
         if not self.require_authorization_message(message):
             return
-        self.bot.reply_to(message, self.config["messages"]["unknown_command"])
+        self.bot.reply_to(
+            message,
+            self.msg("unknown_command", "🤖 Unknown command. Use /start or /help")
+        )
 
     # --------------------------------------------------
     # Run
