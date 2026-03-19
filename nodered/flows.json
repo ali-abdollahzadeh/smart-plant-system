@@ -1,0 +1,1597 @@
+[
+    {
+        "id": "ts_monitor_flow",
+        "type": "tab",
+        "label": "ThingSpeak Monitor",
+        "disabled": false,
+        "info": ""
+    },
+    {
+        "id": "plant_monitor_v2",
+        "type": "tab",
+        "label": "Plant Monitor",
+        "disabled": false,
+        "info": ""
+    },
+    {
+        "id": "9567cd871f4c1228",
+        "type": "subflow",
+        "name": "Subflow 1",
+        "info": "",
+        "in": [],
+        "out": []
+    },
+    {
+        "id": "ui_tab_v2",
+        "type": "ui_tab",
+        "name": "Monitor 1",
+        "icon": "dashboard",
+        "order": 1,
+        "disabled": false,
+        "hidden": false
+    },
+    {
+        "id": "ui_group_gauge",
+        "type": "ui_group",
+        "name": "Real-time Pressure Gauge",
+        "tab": "ui_tab_v2",
+        "order": 1,
+        "disp": true,
+        "width": "12",
+        "collapse": false,
+        "className": ""
+    },
+    {
+        "id": "ui_group_history",
+        "type": "ui_group",
+        "name": "Historical Chart",
+        "tab": "ui_tab_v2",
+        "order": 2,
+        "disp": true,
+        "width": "12",
+        "collapse": false,
+        "className": ""
+    },
+    {
+        "id": "8da3a09cde3f186a",
+        "type": "ui_group",
+        "name": "Real-time Pressure Gauge",
+        "tab": "51db08678596e402",
+        "order": 3,
+        "disp": true,
+        "width": "12",
+        "collapse": false,
+        "className": ""
+    },
+    {
+        "id": "4df9eb16b1434d39",
+        "type": "ui_group",
+        "name": "Historical Chart",
+        "tab": "51db08678596e402",
+        "order": 6,
+        "disp": true,
+        "width": "12",
+        "collapse": false,
+        "className": ""
+    },
+    {
+        "id": "049e6e4e5e47ea57",
+        "type": "ui_group",
+        "name": "Real-time Pressure Gauge",
+        "tab": "d05cc46320f156d2",
+        "order": 5,
+        "disp": true,
+        "width": "12",
+        "collapse": false,
+        "className": ""
+    },
+    {
+        "id": "de367c0ef9ce1d9c",
+        "type": "ui_group",
+        "name": "Historical Chart",
+        "tab": "d05cc46320f156d2",
+        "order": 6,
+        "disp": true,
+        "width": "12",
+        "collapse": false,
+        "className": ""
+    },
+    {
+        "id": "6410693832f49a3a",
+        "type": "ui_group",
+        "name": "Real-time Pressure Gauge",
+        "tab": "1da35cdca37300bc",
+        "order": 7,
+        "disp": true,
+        "width": "12",
+        "collapse": false,
+        "className": ""
+    },
+    {
+        "id": "d711abae374b70ee",
+        "type": "ui_group",
+        "name": "Historical Chart",
+        "tab": "1da35cdca37300bc",
+        "order": 8,
+        "disp": true,
+        "width": "12",
+        "collapse": false,
+        "className": ""
+    },
+    {
+        "id": "51db08678596e402",
+        "type": "ui_tab",
+        "name": "Monitor 2",
+        "icon": "dashboard",
+        "disabled": false,
+        "hidden": false
+    },
+    {
+        "id": "d05cc46320f156d2",
+        "type": "ui_tab",
+        "name": "Monitor 3",
+        "icon": "dashboard",
+        "disabled": false,
+        "hidden": false
+    },
+    {
+        "id": "1da35cdca37300bc",
+        "type": "ui_tab",
+        "name": "Monitor 4",
+        "icon": "dashboard",
+        "disabled": false,
+        "hidden": false
+    },
+    {
+        "id": "inject_1s",
+        "type": "inject",
+        "z": "plant_monitor_v2",
+        "name": "requests per second",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "1",
+        "crontab": "",
+        "once": true,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 160,
+        "y": 100,
+        "wires": [
+            [
+                "get_latest_data"
+            ]
+        ]
+    },
+    {
+        "id": "inject_history",
+        "type": "inject",
+        "z": "plant_monitor_v2",
+        "name": "requests per minute",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "60",
+        "crontab": "",
+        "once": true,
+        "onceDelay": 0.5,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 160,
+        "y": 260,
+        "wires": [
+            [
+                "get_all_history"
+            ]
+        ]
+    },
+    {
+        "id": "get_latest_data",
+        "type": "http request",
+        "z": "plant_monitor_v2",
+        "name": "",
+        "method": "GET",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "https://api.thingspeak.com/channels/3290739/feeds.json?api_key=UUJWYMU6HTBLJBC8&results=1",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 340,
+        "y": 100,
+        "wires": [
+            [
+                "func_split_gauge"
+            ]
+        ]
+    },
+    {
+        "id": "get_all_history",
+        "type": "http request",
+        "z": "plant_monitor_v2",
+        "name": "",
+        "method": "GET",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "https://api.thingspeak.com/channels/3290740/feeds.json?api_key= A0JXDH5I5MRM1U4W&results=60",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 340,
+        "y": 260,
+        "wires": [
+            [
+                "func_format_history"
+            ]
+        ]
+    },
+    {
+        "id": "func_split_gauge",
+        "type": "function",
+        "z": "plant_monitor_v2",
+        "name": "distribution",
+        "func": "if (msg.payload.feeds && msg.payload.feeds.length > 0) {\n    var f = msg.payload.feeds[0];\n    return [\n        { payload: parseFloat(f.field1) },\n        { payload: parseFloat(f.field2) },\n        { payload: parseFloat(f.field3) }\n    ];\n}\nreturn null;",
+        "outputs": 3,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 510,
+        "y": 100,
+        "wires": [
+            [
+                "gauge_temp"
+            ],
+            [
+                "gauge_soil"
+            ],
+            [
+                "gauge_humi"
+            ]
+        ]
+    },
+    {
+        "id": "func_format_history",
+        "type": "function",
+        "z": "plant_monitor_v2",
+        "name": "distribution",
+        "func": "if (msg.payload.feeds) {\n    let t = [], s = [], h = [];\n    msg.payload.feeds.forEach(f => {\n        let time = new Date(f.created_at).getTime();\n        if(f.field1) t.push({x: time, y: parseFloat(f.field1)});\n        if(f.field2) s.push({x: time, y: parseFloat(f.field2)});\n        if(f.field3) h.push({x: time, y: parseFloat(f.field3)});\n    });\n    \n    // 构造 Chart 节点接受的数组格式\n    return [\n        { payload: [{ \"series\": [\"Temperature\"], \"data\": [t], \"labels\": [\"Temperature\"] }] },\n        { payload: [{ \"series\": [\"Soil Moisture\"], \"data\": [s], \"labels\": [\"Soil Moisture\"] }] },\n        { payload: [{ \"series\": [\"Humidity\"], \"data\": [h], \"labels\": [\"Humidity\"] }] }\n    ];\n}\nreturn null;",
+        "outputs": 3,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 510,
+        "y": 260,
+        "wires": [
+            [
+                "chart_all_temp"
+            ],
+            [
+                "chart_all_soil"
+            ],
+            [
+                "chart_all_humi"
+            ]
+        ]
+    },
+    {
+        "id": "gauge_temp",
+        "type": "ui_gauge",
+        "z": "plant_monitor_v2",
+        "name": "",
+        "group": "ui_group_gauge",
+        "order": 1,
+        "width": "4",
+        "height": "4",
+        "gtype": "gage",
+        "title": "Temperature",
+        "label": "°C",
+        "format": "{{value}}",
+        "min": 0,
+        "max": "50",
+        "colors": [
+            "#00b500",
+            "#e6e600",
+            "#ca3838"
+        ],
+        "seg1": "20",
+        "seg2": "35",
+        "diff": false,
+        "className": "",
+        "x": 710,
+        "y": 60,
+        "wires": []
+    },
+    {
+        "id": "gauge_soil",
+        "type": "ui_gauge",
+        "z": "plant_monitor_v2",
+        "name": "",
+        "group": "ui_group_gauge",
+        "order": 2,
+        "width": "4",
+        "height": 4,
+        "gtype": "gage",
+        "title": "Soil Moisture",
+        "label": "%",
+        "format": "{{value}}",
+        "min": 0,
+        "max": "150",
+        "colors": [
+            "#ca3838",
+            "#00b500",
+            "#3030ca"
+        ],
+        "seg1": "40",
+        "seg2": "60",
+        "diff": false,
+        "className": "",
+        "x": 710,
+        "y": 100,
+        "wires": []
+    },
+    {
+        "id": "gauge_humi",
+        "type": "ui_gauge",
+        "z": "plant_monitor_v2",
+        "name": "",
+        "group": "ui_group_gauge",
+        "order": 3,
+        "width": "4",
+        "height": 4,
+        "gtype": "gage",
+        "title": "Humidity",
+        "label": "%",
+        "format": "{{value}}",
+        "min": 0,
+        "max": "100",
+        "colors": [
+            "#e6e600",
+            "#00b500",
+            "#ca3838"
+        ],
+        "seg1": "30",
+        "seg2": "70",
+        "diff": false,
+        "className": "",
+        "x": 700,
+        "y": 140,
+        "wires": []
+    },
+    {
+        "id": "chart_all_temp",
+        "type": "ui_chart",
+        "z": "plant_monitor_v2",
+        "name": "",
+        "group": "ui_group_history",
+        "order": 1,
+        "width": "12",
+        "height": 4,
+        "label": "Temperature",
+        "chartType": "line",
+        "xformat": "HH:mm:ss",
+        "interpolate": "linear",
+        "nodata": "",
+        "dot": false,
+        "ymin": "",
+        "ymax": "",
+        "removeOlder": "24",
+        "removeOlderPoints": "",
+        "removeOlderUnit": "3600",
+        "cutout": "",
+        "useOneColor": false,
+        "useUTC": false,
+        "colors": [
+            "#1f77b4",
+            "#aec7e8",
+            "#ff7f0e",
+            "#2ca02c",
+            "#98df8a",
+            "#d62728",
+            "#ff9896",
+            "#9467bd",
+            "#c5b0d5"
+        ],
+        "outputs": 1,
+        "useDifferentColor": false,
+        "className": "",
+        "x": 710,
+        "y": 220,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "chart_all_soil",
+        "type": "ui_chart",
+        "z": "plant_monitor_v2",
+        "name": "",
+        "group": "ui_group_history",
+        "order": 2,
+        "width": "12",
+        "height": 4,
+        "label": "Soil Moisture",
+        "chartType": "line",
+        "xformat": "HH:mm:ss",
+        "interpolate": "linear",
+        "nodata": "",
+        "dot": false,
+        "ymin": "",
+        "ymax": "",
+        "removeOlder": "24",
+        "removeOlderPoints": "",
+        "removeOlderUnit": "3600",
+        "cutout": "",
+        "useOneColor": false,
+        "useUTC": false,
+        "colors": [
+            "#1f77b4",
+            "#aec7e8",
+            "#ff7f0e",
+            "#2ca02c",
+            "#98df8a",
+            "#d62728",
+            "#ff9896",
+            "#9467bd",
+            "#c5b0d5"
+        ],
+        "outputs": 1,
+        "useDifferentColor": false,
+        "className": "",
+        "x": 710,
+        "y": 260,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "chart_all_humi",
+        "type": "ui_chart",
+        "z": "plant_monitor_v2",
+        "name": "",
+        "group": "ui_group_history",
+        "order": 3,
+        "width": "12",
+        "height": 4,
+        "label": "Humidity",
+        "chartType": "line",
+        "xformat": "HH:mm:ss",
+        "interpolate": "linear",
+        "nodata": "",
+        "dot": false,
+        "ymin": "",
+        "ymax": "",
+        "removeOlder": "24",
+        "removeOlderPoints": "",
+        "removeOlderUnit": "3600",
+        "cutout": "",
+        "useOneColor": false,
+        "useUTC": false,
+        "colors": [
+            "#1f77b4",
+            "#aec7e8",
+            "#ff7f0e",
+            "#2ca02c",
+            "#98df8a",
+            "#d62728",
+            "#ff9896",
+            "#9467bd",
+            "#c5b0d5"
+        ],
+        "outputs": 1,
+        "useDifferentColor": false,
+        "className": "",
+        "x": 700,
+        "y": 300,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "064e7053e99cc6df",
+        "type": "inject",
+        "z": "plant_monitor_v2",
+        "name": "requests per second",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "1",
+        "crontab": "",
+        "once": true,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 160,
+        "y": 420,
+        "wires": [
+            [
+                "85d85c8f60e3f992"
+            ]
+        ]
+    },
+    {
+        "id": "1821e612af4f35b4",
+        "type": "inject",
+        "z": "plant_monitor_v2",
+        "name": "requests per minute",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "60",
+        "crontab": "",
+        "once": true,
+        "onceDelay": 0.5,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 160,
+        "y": 580,
+        "wires": [
+            [
+                "428d398bf517a0e3"
+            ]
+        ]
+    },
+    {
+        "id": "85d85c8f60e3f992",
+        "type": "http request",
+        "z": "plant_monitor_v2",
+        "name": "",
+        "method": "GET",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "https://api.thingspeak.com/channels/3290740/feeds.json?api_key= A0JXDH5I5MRM1U4W&results=1",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 340,
+        "y": 420,
+        "wires": [
+            [
+                "2e4034ce46972749"
+            ]
+        ]
+    },
+    {
+        "id": "428d398bf517a0e3",
+        "type": "http request",
+        "z": "plant_monitor_v2",
+        "name": "",
+        "method": "GET",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "https://api.thingspeak.com/channels/3290740/feeds.json?api_key=A0JXDH5I5MRM1U4W&results=60",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 340,
+        "y": 580,
+        "wires": [
+            [
+                "50e32ca68f7714d5"
+            ]
+        ]
+    },
+    {
+        "id": "2e4034ce46972749",
+        "type": "function",
+        "z": "plant_monitor_v2",
+        "name": "distribution",
+        "func": "if (msg.payload.feeds && msg.payload.feeds.length > 0) {\n    var f = msg.payload.feeds[0];\n    return [\n        { payload: parseFloat(f.field1) },\n        { payload: parseFloat(f.field2) },\n        { payload: parseFloat(f.field3) }\n    ];\n}\nreturn null;",
+        "outputs": 3,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 510,
+        "y": 420,
+        "wires": [
+            [
+                "a1fbc6da10fb2133"
+            ],
+            [
+                "d59f31fffd61d91c"
+            ],
+            [
+                "efe49d48c26cbfa5"
+            ]
+        ]
+    },
+    {
+        "id": "50e32ca68f7714d5",
+        "type": "function",
+        "z": "plant_monitor_v2",
+        "name": "distribution",
+        "func": "if (msg.payload.feeds) {\n    let t = [], s = [], h = [];\n    msg.payload.feeds.forEach(f => {\n        let time = new Date(f.created_at).getTime();\n        if(f.field1) t.push({x: time, y: parseFloat(f.field1)});\n        if(f.field2) s.push({x: time, y: parseFloat(f.field2)});\n        if(f.field3) h.push({x: time, y: parseFloat(f.field3)});\n    });\n    \n    // 构造 Chart 节点接受的数组格式\n    return [\n        { payload: [{ \"series\": [\"Temperature\"], \"data\": [t], \"labels\": [\"Temperature\"] }] },\n        { payload: [{ \"series\": [\"Soil Moisture\"], \"data\": [s], \"labels\": [\"Soil Moisture\"] }] },\n        { payload: [{ \"series\": [\"Humidity\"], \"data\": [h], \"labels\": [\"Humidity\"] }] }\n    ];\n}\nreturn null;",
+        "outputs": 3,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 510,
+        "y": 580,
+        "wires": [
+            [
+                "c0b208785222bb96"
+            ],
+            [
+                "2050d8da9dcc33b7"
+            ],
+            [
+                "b69c4148764ca642"
+            ]
+        ]
+    },
+    {
+        "id": "a1fbc6da10fb2133",
+        "type": "ui_gauge",
+        "z": "plant_monitor_v2",
+        "name": "",
+        "group": "8da3a09cde3f186a",
+        "order": 1,
+        "width": 4,
+        "height": 4,
+        "gtype": "gage",
+        "title": "Temperature",
+        "label": "°C",
+        "format": "{{value}}",
+        "min": 0,
+        "max": "50",
+        "colors": [
+            "#00b500",
+            "#e6e600",
+            "#ca3838"
+        ],
+        "seg1": "20",
+        "seg2": "35",
+        "diff": false,
+        "className": "",
+        "x": 710,
+        "y": 380,
+        "wires": []
+    },
+    {
+        "id": "d59f31fffd61d91c",
+        "type": "ui_gauge",
+        "z": "plant_monitor_v2",
+        "name": "",
+        "group": "8da3a09cde3f186a",
+        "order": 2,
+        "width": 4,
+        "height": 4,
+        "gtype": "gage",
+        "title": "Soil Moisture",
+        "label": "%",
+        "format": "{{value}}",
+        "min": 0,
+        "max": "150",
+        "colors": [
+            "#ca3838",
+            "#00b500",
+            "#3030ca"
+        ],
+        "seg1": "40",
+        "seg2": "60",
+        "diff": false,
+        "className": "",
+        "x": 710,
+        "y": 420,
+        "wires": []
+    },
+    {
+        "id": "efe49d48c26cbfa5",
+        "type": "ui_gauge",
+        "z": "plant_monitor_v2",
+        "name": "",
+        "group": "8da3a09cde3f186a",
+        "order": 3,
+        "width": 4,
+        "height": 4,
+        "gtype": "gage",
+        "title": "Humidity",
+        "label": "%",
+        "format": "{{value}}",
+        "min": 0,
+        "max": "100",
+        "colors": [
+            "#e6e600",
+            "#00b500",
+            "#ca3838"
+        ],
+        "seg1": "30",
+        "seg2": "70",
+        "diff": false,
+        "className": "",
+        "x": 700,
+        "y": 460,
+        "wires": []
+    },
+    {
+        "id": "a01e2c70a32e9217",
+        "type": "inject",
+        "z": "plant_monitor_v2",
+        "name": "requests per second",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "1",
+        "crontab": "",
+        "once": true,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 160,
+        "y": 720,
+        "wires": [
+            [
+                "377e30b381f08073"
+            ]
+        ]
+    },
+    {
+        "id": "7b02e0c32d81238f",
+        "type": "inject",
+        "z": "plant_monitor_v2",
+        "name": "requests per minute",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "60",
+        "crontab": "",
+        "once": true,
+        "onceDelay": 0.5,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 160,
+        "y": 860,
+        "wires": [
+            [
+                "9476ada9aff6e1cc"
+            ]
+        ]
+    },
+    {
+        "id": "377e30b381f08073",
+        "type": "http request",
+        "z": "plant_monitor_v2",
+        "name": "",
+        "method": "GET",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "https://api.thingspeak.com/channels/3290738/feeds.json?api_key=BYSA51NQXXTFKCWM&results=1",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 340,
+        "y": 720,
+        "wires": [
+            [
+                "dc456a044aedc512"
+            ]
+        ]
+    },
+    {
+        "id": "9476ada9aff6e1cc",
+        "type": "http request",
+        "z": "plant_monitor_v2",
+        "name": "",
+        "method": "GET",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "https://api.thingspeak.com/channels/3290738/feeds.json?api_key=BYSA51NQXXTFKCWM&results=60",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 340,
+        "y": 860,
+        "wires": [
+            [
+                "428aed1c126c2307"
+            ]
+        ]
+    },
+    {
+        "id": "dc456a044aedc512",
+        "type": "function",
+        "z": "plant_monitor_v2",
+        "name": "distribution",
+        "func": "if (msg.payload.feeds && msg.payload.feeds.length > 0) {\n    var f = msg.payload.feeds[0];\n    return [\n        { payload: parseFloat(f.field1) },\n        { payload: parseFloat(f.field2) },\n        { payload: parseFloat(f.field3) }\n    ];\n}\nreturn null;",
+        "outputs": 3,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 510,
+        "y": 720,
+        "wires": [
+            [
+                "11500d33a139a1a8"
+            ],
+            [
+                "f152e450d9a91a44"
+            ],
+            [
+                "a1810eaa51d1e4dc"
+            ]
+        ]
+    },
+    {
+        "id": "428aed1c126c2307",
+        "type": "function",
+        "z": "plant_monitor_v2",
+        "name": "distribution",
+        "func": "if (msg.payload.feeds) {\n    let t = [], s = [], h = [];\n    msg.payload.feeds.forEach(f => {\n        let time = new Date(f.created_at).getTime();\n        if(f.field1) t.push({x: time, y: parseFloat(f.field1)});\n        if(f.field2) s.push({x: time, y: parseFloat(f.field2)});\n        if(f.field3) h.push({x: time, y: parseFloat(f.field3)});\n    });\n    \n    // 构造 Chart 节点接受的数组格式\n    return [\n        { payload: [{ \"series\": [\"Temperature\"], \"data\": [t], \"labels\": [\"Temperature\"] }] },\n        { payload: [{ \"series\": [\"Soil Moisture\"], \"data\": [s], \"labels\": [\"Soil Moisture\"] }] },\n        { payload: [{ \"series\": [\"Humidity\"], \"data\": [h], \"labels\": [\"Humidity\"] }] }\n    ];\n}\nreturn null;",
+        "outputs": 3,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 510,
+        "y": 860,
+        "wires": [
+            [
+                "ef679a4c22a35b4e"
+            ],
+            [
+                "2fe6f85232a78144"
+            ],
+            [
+                "7d3789479483ae15"
+            ]
+        ]
+    },
+    {
+        "id": "11500d33a139a1a8",
+        "type": "ui_gauge",
+        "z": "plant_monitor_v2",
+        "name": "",
+        "group": "049e6e4e5e47ea57",
+        "order": 1,
+        "width": 4,
+        "height": 4,
+        "gtype": "gage",
+        "title": "Temperature",
+        "label": "°C",
+        "format": "{{value}}",
+        "min": 0,
+        "max": "50",
+        "colors": [
+            "#00b500",
+            "#e6e600",
+            "#ca3838"
+        ],
+        "seg1": "20",
+        "seg2": "35",
+        "diff": false,
+        "className": "",
+        "x": 710,
+        "y": 680,
+        "wires": []
+    },
+    {
+        "id": "f152e450d9a91a44",
+        "type": "ui_gauge",
+        "z": "plant_monitor_v2",
+        "name": "",
+        "group": "049e6e4e5e47ea57",
+        "order": 2,
+        "width": 4,
+        "height": 4,
+        "gtype": "gage",
+        "title": "Soil Moisture",
+        "label": "%",
+        "format": "{{value}}",
+        "min": 0,
+        "max": "150",
+        "colors": [
+            "#ca3838",
+            "#00b500",
+            "#3030ca"
+        ],
+        "seg1": "40",
+        "seg2": "60",
+        "diff": false,
+        "className": "",
+        "x": 710,
+        "y": 720,
+        "wires": []
+    },
+    {
+        "id": "a1810eaa51d1e4dc",
+        "type": "ui_gauge",
+        "z": "plant_monitor_v2",
+        "name": "",
+        "group": "049e6e4e5e47ea57",
+        "order": 3,
+        "width": 4,
+        "height": 4,
+        "gtype": "gage",
+        "title": "Humidity",
+        "label": "%",
+        "format": "{{value}}",
+        "min": 0,
+        "max": "100",
+        "colors": [
+            "#e6e600",
+            "#00b500",
+            "#ca3838"
+        ],
+        "seg1": "30",
+        "seg2": "70",
+        "diff": false,
+        "className": "",
+        "x": 700,
+        "y": 760,
+        "wires": []
+    },
+    {
+        "id": "cf1d09cfb2c2993c",
+        "type": "inject",
+        "z": "plant_monitor_v2",
+        "name": "requests per second",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "1",
+        "crontab": "",
+        "once": true,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 160,
+        "y": 1000,
+        "wires": [
+            [
+                "682e0602c8cc359b"
+            ]
+        ]
+    },
+    {
+        "id": "44e1df36c89530f4",
+        "type": "inject",
+        "z": "plant_monitor_v2",
+        "name": "requests per minute",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "60",
+        "crontab": "",
+        "once": true,
+        "onceDelay": 0.5,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 160,
+        "y": 1160,
+        "wires": [
+            [
+                "8af6bdd59a78230b"
+            ]
+        ]
+    },
+    {
+        "id": "682e0602c8cc359b",
+        "type": "http request",
+        "z": "plant_monitor_v2",
+        "name": "",
+        "method": "GET",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "https://api.thingspeak.com/channels/3290737/feeds.json?api_key=JJPWB4B84Q1MY341&results=1",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 340,
+        "y": 1000,
+        "wires": [
+            [
+                "dd35fcaf439d5fa3"
+            ]
+        ]
+    },
+    {
+        "id": "8af6bdd59a78230b",
+        "type": "http request",
+        "z": "plant_monitor_v2",
+        "name": "",
+        "method": "GET",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "https://api.thingspeak.com/channels/3290737/feeds.json?api_key=JJPWB4B84Q1MY341&results=60",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 340,
+        "y": 1160,
+        "wires": [
+            [
+                "525c9037cb9679ba"
+            ]
+        ]
+    },
+    {
+        "id": "dd35fcaf439d5fa3",
+        "type": "function",
+        "z": "plant_monitor_v2",
+        "name": "distribution",
+        "func": "if (msg.payload.feeds && msg.payload.feeds.length > 0) {\n    var f = msg.payload.feeds[0];\n    return [\n        { payload: parseFloat(f.field1) },\n        { payload: parseFloat(f.field2) },\n        { payload: parseFloat(f.field3) }\n    ];\n}\nreturn null;",
+        "outputs": 3,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 510,
+        "y": 1000,
+        "wires": [
+            [
+                "736882df35d829cc"
+            ],
+            [
+                "7e600f1b069a97a1"
+            ],
+            [
+                "e9086e5c1e710c78"
+            ]
+        ]
+    },
+    {
+        "id": "525c9037cb9679ba",
+        "type": "function",
+        "z": "plant_monitor_v2",
+        "name": "distribution",
+        "func": "if (msg.payload.feeds) {\n    let t = [], s = [], h = [];\n    msg.payload.feeds.forEach(f => {\n        let time = new Date(f.created_at).getTime();\n        if(f.field1) t.push({x: time, y: parseFloat(f.field1)});\n        if(f.field2) s.push({x: time, y: parseFloat(f.field2)});\n        if(f.field3) h.push({x: time, y: parseFloat(f.field3)});\n    });\n    \n    // 构造 Chart 节点接受的数组格式\n    return [\n        { payload: [{ \"series\": [\"Temperature\"], \"data\": [t], \"labels\": [\"Temperature\"] }] },\n        { payload: [{ \"series\": [\"Soil Moisture\"], \"data\": [s], \"labels\": [\"Soil Moisture\"] }] },\n        { payload: [{ \"series\": [\"Humidity\"], \"data\": [h], \"labels\": [\"Humidity\"] }] }\n    ];\n}\nreturn null;",
+        "outputs": 3,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 510,
+        "y": 1160,
+        "wires": [
+            [
+                "fc7713c2c23d7d0e"
+            ],
+            [
+                "5a995417b1ece08f"
+            ],
+            [
+                "cb4edfba57c804f2"
+            ]
+        ]
+    },
+    {
+        "id": "736882df35d829cc",
+        "type": "ui_gauge",
+        "z": "plant_monitor_v2",
+        "name": "",
+        "group": "6410693832f49a3a",
+        "order": 1,
+        "width": 4,
+        "height": 4,
+        "gtype": "gage",
+        "title": "Temperature",
+        "label": "°C",
+        "format": "{{value}}",
+        "min": 0,
+        "max": "50",
+        "colors": [
+            "#00b500",
+            "#e6e600",
+            "#ca3838"
+        ],
+        "seg1": "20",
+        "seg2": "35",
+        "diff": false,
+        "className": "",
+        "x": 710,
+        "y": 960,
+        "wires": []
+    },
+    {
+        "id": "7e600f1b069a97a1",
+        "type": "ui_gauge",
+        "z": "plant_monitor_v2",
+        "name": "",
+        "group": "6410693832f49a3a",
+        "order": 2,
+        "width": 4,
+        "height": 4,
+        "gtype": "gage",
+        "title": "Soil Moisture",
+        "label": "%",
+        "format": "{{value}}",
+        "min": 0,
+        "max": "150",
+        "colors": [
+            "#ca3838",
+            "#00b500",
+            "#3030ca"
+        ],
+        "seg1": "40",
+        "seg2": "60",
+        "diff": false,
+        "className": "",
+        "x": 710,
+        "y": 1000,
+        "wires": []
+    },
+    {
+        "id": "e9086e5c1e710c78",
+        "type": "ui_gauge",
+        "z": "plant_monitor_v2",
+        "name": "",
+        "group": "6410693832f49a3a",
+        "order": 3,
+        "width": 4,
+        "height": 4,
+        "gtype": "gage",
+        "title": "Humidity",
+        "label": "%",
+        "format": "{{value}}",
+        "min": 0,
+        "max": "100",
+        "colors": [
+            "#e6e600",
+            "#00b500",
+            "#ca3838"
+        ],
+        "seg1": "30",
+        "seg2": "70",
+        "diff": false,
+        "className": "",
+        "x": 700,
+        "y": 1040,
+        "wires": []
+    },
+    {
+        "id": "c0b208785222bb96",
+        "type": "ui_chart",
+        "z": "plant_monitor_v2",
+        "name": "",
+        "group": "4df9eb16b1434d39",
+        "order": 1,
+        "width": "12",
+        "height": 4,
+        "label": "Temperature",
+        "chartType": "line",
+        "xformat": "HH:mm:ss",
+        "interpolate": "linear",
+        "nodata": "",
+        "dot": false,
+        "ymin": "",
+        "ymax": "",
+        "removeOlder": "24",
+        "removeOlderPoints": "",
+        "removeOlderUnit": "3600",
+        "cutout": "",
+        "useOneColor": false,
+        "useUTC": false,
+        "colors": [
+            "#1f77b4",
+            "#aec7e8",
+            "#ff7f0e",
+            "#2ca02c",
+            "#98df8a",
+            "#d62728",
+            "#ff9896",
+            "#9467bd",
+            "#c5b0d5"
+        ],
+        "outputs": 1,
+        "useDifferentColor": false,
+        "className": "",
+        "x": 710,
+        "y": 540,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "2050d8da9dcc33b7",
+        "type": "ui_chart",
+        "z": "plant_monitor_v2",
+        "name": "",
+        "group": "4df9eb16b1434d39",
+        "order": 2,
+        "width": "12",
+        "height": 4,
+        "label": "Soil Moisture",
+        "chartType": "line",
+        "xformat": "HH:mm:ss",
+        "interpolate": "linear",
+        "nodata": "",
+        "dot": false,
+        "ymin": "",
+        "ymax": "",
+        "removeOlder": "24",
+        "removeOlderPoints": "",
+        "removeOlderUnit": "3600",
+        "cutout": "",
+        "useOneColor": false,
+        "useUTC": false,
+        "colors": [
+            "#1f77b4",
+            "#aec7e8",
+            "#ff7f0e",
+            "#2ca02c",
+            "#98df8a",
+            "#d62728",
+            "#ff9896",
+            "#9467bd",
+            "#c5b0d5"
+        ],
+        "outputs": 1,
+        "useDifferentColor": false,
+        "className": "",
+        "x": 710,
+        "y": 580,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "b69c4148764ca642",
+        "type": "ui_chart",
+        "z": "plant_monitor_v2",
+        "name": "",
+        "group": "4df9eb16b1434d39",
+        "order": 3,
+        "width": "12",
+        "height": 4,
+        "label": "Humidity",
+        "chartType": "line",
+        "xformat": "HH:mm:ss",
+        "interpolate": "linear",
+        "nodata": "",
+        "dot": false,
+        "ymin": "",
+        "ymax": "",
+        "removeOlder": "24",
+        "removeOlderPoints": "",
+        "removeOlderUnit": "3600",
+        "cutout": "",
+        "useOneColor": false,
+        "useUTC": false,
+        "colors": [
+            "#1f77b4",
+            "#aec7e8",
+            "#ff7f0e",
+            "#2ca02c",
+            "#98df8a",
+            "#d62728",
+            "#ff9896",
+            "#9467bd",
+            "#c5b0d5"
+        ],
+        "outputs": 1,
+        "useDifferentColor": false,
+        "className": "",
+        "x": 700,
+        "y": 620,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "fc7713c2c23d7d0e",
+        "type": "ui_chart",
+        "z": "plant_monitor_v2",
+        "name": "",
+        "group": "d711abae374b70ee",
+        "order": 1,
+        "width": "12",
+        "height": 4,
+        "label": "Temperature",
+        "chartType": "line",
+        "xformat": "HH:mm:ss",
+        "interpolate": "linear",
+        "nodata": "",
+        "dot": false,
+        "ymin": "",
+        "ymax": "",
+        "removeOlder": "24",
+        "removeOlderPoints": "",
+        "removeOlderUnit": "3600",
+        "cutout": "",
+        "useOneColor": false,
+        "useUTC": false,
+        "colors": [
+            "#1f77b4",
+            "#aec7e8",
+            "#ff7f0e",
+            "#2ca02c",
+            "#98df8a",
+            "#d62728",
+            "#ff9896",
+            "#9467bd",
+            "#c5b0d5"
+        ],
+        "outputs": 1,
+        "useDifferentColor": false,
+        "className": "",
+        "x": 710,
+        "y": 1120,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "5a995417b1ece08f",
+        "type": "ui_chart",
+        "z": "plant_monitor_v2",
+        "name": "",
+        "group": "d711abae374b70ee",
+        "order": 2,
+        "width": "12",
+        "height": 4,
+        "label": "Soil Moisture",
+        "chartType": "line",
+        "xformat": "HH:mm:ss",
+        "interpolate": "linear",
+        "nodata": "",
+        "dot": false,
+        "ymin": "",
+        "ymax": "",
+        "removeOlder": "24",
+        "removeOlderPoints": "",
+        "removeOlderUnit": "3600",
+        "cutout": "",
+        "useOneColor": false,
+        "useUTC": false,
+        "colors": [
+            "#1f77b4",
+            "#aec7e8",
+            "#ff7f0e",
+            "#2ca02c",
+            "#98df8a",
+            "#d62728",
+            "#ff9896",
+            "#9467bd",
+            "#c5b0d5"
+        ],
+        "outputs": 1,
+        "useDifferentColor": false,
+        "className": "",
+        "x": 710,
+        "y": 1160,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "cb4edfba57c804f2",
+        "type": "ui_chart",
+        "z": "plant_monitor_v2",
+        "name": "",
+        "group": "d711abae374b70ee",
+        "order": 3,
+        "width": "12",
+        "height": 4,
+        "label": "Humidity",
+        "chartType": "line",
+        "xformat": "HH:mm:ss",
+        "interpolate": "linear",
+        "nodata": "",
+        "dot": false,
+        "ymin": "",
+        "ymax": "",
+        "removeOlder": "24",
+        "removeOlderPoints": "",
+        "removeOlderUnit": "3600",
+        "cutout": "",
+        "useOneColor": false,
+        "useUTC": false,
+        "colors": [
+            "#1f77b4",
+            "#aec7e8",
+            "#ff7f0e",
+            "#2ca02c",
+            "#98df8a",
+            "#d62728",
+            "#ff9896",
+            "#9467bd",
+            "#c5b0d5"
+        ],
+        "outputs": 1,
+        "useDifferentColor": false,
+        "className": "",
+        "x": 700,
+        "y": 1200,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "ef679a4c22a35b4e",
+        "type": "ui_chart",
+        "z": "plant_monitor_v2",
+        "name": "",
+        "group": "de367c0ef9ce1d9c",
+        "order": 1,
+        "width": "12",
+        "height": 4,
+        "label": "Temperature",
+        "chartType": "line",
+        "xformat": "HH:mm:ss",
+        "interpolate": "linear",
+        "nodata": "",
+        "dot": false,
+        "ymin": "",
+        "ymax": "",
+        "removeOlder": "24",
+        "removeOlderPoints": "",
+        "removeOlderUnit": "3600",
+        "cutout": "",
+        "useOneColor": false,
+        "useUTC": false,
+        "colors": [
+            "#1f77b4",
+            "#aec7e8",
+            "#ff7f0e",
+            "#2ca02c",
+            "#98df8a",
+            "#d62728",
+            "#ff9896",
+            "#9467bd",
+            "#c5b0d5"
+        ],
+        "outputs": 1,
+        "useDifferentColor": false,
+        "className": "",
+        "x": 710,
+        "y": 820,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "2fe6f85232a78144",
+        "type": "ui_chart",
+        "z": "plant_monitor_v2",
+        "name": "",
+        "group": "de367c0ef9ce1d9c",
+        "order": 2,
+        "width": "12",
+        "height": 4,
+        "label": "Soil Moisture",
+        "chartType": "line",
+        "xformat": "HH:mm:ss",
+        "interpolate": "linear",
+        "nodata": "",
+        "dot": false,
+        "ymin": "",
+        "ymax": "",
+        "removeOlder": "24",
+        "removeOlderPoints": "",
+        "removeOlderUnit": "3600",
+        "cutout": "",
+        "useOneColor": false,
+        "useUTC": false,
+        "colors": [
+            "#1f77b4",
+            "#aec7e8",
+            "#ff7f0e",
+            "#2ca02c",
+            "#98df8a",
+            "#d62728",
+            "#ff9896",
+            "#9467bd",
+            "#c5b0d5"
+        ],
+        "outputs": 1,
+        "useDifferentColor": false,
+        "className": "",
+        "x": 710,
+        "y": 860,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "7d3789479483ae15",
+        "type": "ui_chart",
+        "z": "plant_monitor_v2",
+        "name": "",
+        "group": "de367c0ef9ce1d9c",
+        "order": 3,
+        "width": "12",
+        "height": 4,
+        "label": "Humidity",
+        "chartType": "line",
+        "xformat": "HH:mm:ss",
+        "interpolate": "linear",
+        "nodata": "",
+        "dot": false,
+        "ymin": "",
+        "ymax": "",
+        "removeOlder": "24",
+        "removeOlderPoints": "",
+        "removeOlderUnit": "3600",
+        "cutout": "",
+        "useOneColor": false,
+        "useUTC": false,
+        "colors": [
+            "#1f77b4",
+            "#aec7e8",
+            "#ff7f0e",
+            "#2ca02c",
+            "#98df8a",
+            "#d62728",
+            "#ff9896",
+            "#9467bd",
+            "#c5b0d5"
+        ],
+        "outputs": 1,
+        "useDifferentColor": false,
+        "className": "",
+        "x": 700,
+        "y": 900,
+        "wires": [
+            []
+        ]
+    }
+]
