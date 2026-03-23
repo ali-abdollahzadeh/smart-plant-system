@@ -110,6 +110,16 @@ services:
       - analytics
       - mosquitto
     restart: unless-stopped
+    
+  node-red:
+    image: nodered/node-red
+    ports:
+      - "1880:1880"
+    volumes:
+      - ./flow.json:/data/flows.json
+    environment:
+      - FLOWS=flows.json
+      - TZ=Europe/Turin
 
   raspi-01:
     build: ./raspberry-pi
