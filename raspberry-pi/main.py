@@ -42,7 +42,8 @@ class SensorNode:
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         self.last_registration_time = 0.0
-        self.soil = random.uniform(55, 70)
+        self.soil = random.uniform(55.0, 70.0)
+        self.last_soil_update = time.time()
 
         # local simulated actuator/control state
         self.control_state = {
@@ -72,10 +73,29 @@ class SensorNode:
         noise = random.uniform(-0.7, 0.7)
         return round(base + noise, 1)
 
-    def read_soil_moisture(self):
-        decay = random.uniform(0.5, 2.0)
-        self.soil = max(150.0, self.soil - decay)
-        return round(self.soil, 1)
+    def read_soil_moisture(self) -> float:
+        now = time.time()
+        elapsed_seconds = now - self.last_soil_update
+        self.last_soil_update = now
+
+        base_decay_per_hour = 1.2
+
+        frac = self._day_fraction()
+        temp_factor = 1.0 + 0.25 * math.sin(2 * math.pi * frac)
+
+        decay = base_decay_per_hour * temp_factor * (elapsed_seconds / 3600.0)
+
+        if self.control_state["watering"] == "increase_requested":
+            self.soil += 2.5 * (elapsed_seconds / 10.0)
+        elif self.control_state["watering"] == "reduction_requested":
+            decay *= 1.2
+
+        self.soil -= decay
+
+        self.soil = max(15.0, min(95.0, self.soil))
+
+        noise = random.uniform(-0.4, 0.4)
+        return round(max(0.0, min(100.0, self.soil + noise)), 1)
 
     def read_humidity(self) -> float:
         frac = self._day_fraction()
