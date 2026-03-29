@@ -112,14 +112,20 @@ services:
     restart: unless-stopped
 
   node-red:
-    build: ./nodered
+    build:
+      context: ./nodered
+    image: smart-plant-node-red:latest
+    container_name: node-red
     ports:
       - "1880:1880"
     volumes:
       - ./nodered/data:/data
     environment:
-      - FLOWS=flows.json
-      - TZ=Europe/Turin
+      FLOWS: flows.json
+      TZ: Europe/Turin
+    depends_on:
+      - mosquitto
+    restart: unless-stopped
 
   raspi-01:
     build: ./raspberry-pi
