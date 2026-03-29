@@ -1,0 +1,9 @@
+.env
+telegram_bot/auth.json
+thingspeak_adapter/config.json
+.DS_Store
+__pycache__/
+*.pyc
+mosquitto/data/
+mosquitto/log/
+nodered/data/

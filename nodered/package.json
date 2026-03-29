@@ -1,0 +1,9 @@
+{
+    "name": "smart-plant-nodered",
+    "private": true,
+    "dependencies": {
+        "node-red-dashboard": "*",
+        "node-red-contrib-influxdb": "*",
+        "node-red-node-ui-table": "*"
+    }
+}

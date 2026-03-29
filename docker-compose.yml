@@ -112,11 +112,11 @@ services:
     restart: unless-stopped
 
   node-red:
-    image: nodered/node-red
+    build: ./nodered
     ports:
       - "1880:1880"
     volumes:
-      - ./nodered/flows.json:/data/flows.json
+      - ./nodered/data:/data
     environment:
       - FLOWS=flows.json
       - TZ=Europe/Turin

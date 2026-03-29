@@ -14,3 +14,5 @@ Smart Plant Care System (SPCS) is a microservices-based IoT platform for monitor
 2. **Build and Run:** Ensure Docker and Docker Compose are installed. Then run:
    ```bash
    docker compose up -d --build
+
+3. **Access the Dashboard:** Open your browser and go to `http://127.0.0.1:1880/ui` to access the Node-RED dashboard.

@@ -1,0 +1,10 @@
+{
+    "authorized_users": [
+        123456789
+    ],
+    "user_devices": {
+        "123456789": [
+            "raspi-01"
+        ]
+    }
+}

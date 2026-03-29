@@ -1,0 +1,15 @@
+{
+    "thingspeak": {
+        "base_url": "https://api.thingspeak.com",
+        "user_api_key": "YOUR_THINGSPEAK_USER_API_KEY",
+        "public_channels": false
+    },
+    "mqtt": {
+        "topic": "smartplant/sensors/#"
+    },
+    "default_fields": {
+        "temperature": "Temperature",
+        "soil_moisture": "Soil Moisture",
+        "humidity": "Humidity"
+    }
+}
