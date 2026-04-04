@@ -111,22 +111,18 @@ services:
       - mosquitto
     restart: unless-stopped
 
-  node-red:
-    build:
-      context: ./nodered
-    image: smart-plant-node-red:latest
-    container_name: node-red
-    ports:
-      - "1880:1880"
-    volumes:
-      - ./nodered/data:/data
-    environment:
-      FLOWS: flows.json
-      TZ: Europe/Turin
-    depends_on:
-      - mosquitto
-    restart: unless-stopped
-
+  nodered:
+  build: ./nodered
+  container_name: nodered
+  ports:
+    - "1880:1880"
+  volumes:
+    - ./nodered/data:/data
+  depends_on:
+    - catalogue
+    - mosquitto
+  restart: unless-stopped
+  
   raspi-01:
     build: ./raspberry-pi
     container_name: raspi-01
