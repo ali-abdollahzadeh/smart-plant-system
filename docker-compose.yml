@@ -112,16 +112,16 @@ services:
     restart: unless-stopped
 
   nodered:
-  build: ./nodered
-  container_name: nodered
-  ports:
-    - "1880:1880"
-  volumes:
-    - ./nodered/data:/data
-  depends_on:
-    - catalogue
-    - mosquitto
-  restart: unless-stopped
+    build: ./nodered
+    container_name: nodered
+    ports:
+      - "1880:1880"
+    volumes:
+      - ./nodered/data:/data
+    depends_on:
+      - catalogue
+      - mosquitto
+    restart: unless-stopped
   
   raspi-01:
     build: ./raspberry-pi

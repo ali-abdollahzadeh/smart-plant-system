@@ -1,4 +1,11 @@
 FROM nodered/node-red:latest
 
 COPY package.json /data/package.json
-RUN cd /data && npm install --omit=dev --unsafe-perm
+# Install nodes
+RUN cd /data && npm install
+
+# (optional) copy flows if you want auto-load
+# COPY data/flows.json /data/flows.json
+
+
+
