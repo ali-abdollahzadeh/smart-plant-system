@@ -118,6 +118,10 @@ services:
       - "1880:1880"
     volumes:
       - ./nodered/data:/data
+    command: >
+      sh -c "cd /data &&
+             npm install node-red-dashboard &&
+             npm start -- --userDir /data"
     depends_on:
       - catalogue
       - mosquitto
