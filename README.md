@@ -3,6 +3,7 @@
 ## Overview
 
 Smart Plant Care System (SPCS) is a microservices-based IoT platform for monitoring and automatically caring for plants. It features simulated or real sensor data, automated watering, alert notifications, a web dashboard, and a Telegram bot for user interaction. The system is fully containerized using Docker Compose.
+![Alt text](diagram.jpg)
 
 ## Quick Start
 
