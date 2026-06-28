@@ -14,7 +14,6 @@ class TelegramPlantBot:
     def __init__(self) -> None:
         self.runtime = self.load_runtime_config()
         self.config = self.load_json(self.runtime["config_file"])
-        self.auth = self.load_json(self.runtime["auth_file"])
 
         token = self.runtime["telegram_bot_token"]
         if not token:
@@ -22,8 +21,10 @@ class TelegramPlantBot:
 
         self.bot = telebot.TeleBot(token)
 
+        self.mqtt_connected = False
         self.mqtt_client = mqtt.Client()
         self.mqtt_client.on_connect = self.on_mqtt_connect
+        self.mqtt_client.on_disconnect = self.on_mqtt_disconnect
         self.mqtt_client.on_message = self.on_mqtt_message
 
         self.register_handlers()
@@ -46,57 +47,92 @@ class TelegramPlantBot:
             "service_type": os.environ.get("SERVICE_TYPE", "telegram_bot"),
             "register_interval": int(os.environ.get("REGISTER_INTERVAL", 60)),
             "config_file": os.environ.get("CONFIG_FILE", "/app/config.json"),
-            "auth_file": os.environ.get("AUTH_FILE", "/app/auth.json"),
             "mqtt_broker": os.environ.get("MQTT_BROKER", "mosquitto"),
             "mqtt_port": int(os.environ.get("MQTT_PORT", 1883)),
             "mqtt_alert_topic": os.environ.get("MQTT_ALERT_TOPIC", "smartplant/alerts/#"),
             "mqtt_command_topic_base": os.environ.get("MQTT_COMMAND_TOPIC_BASE", "smartplant/commands"),
         }
 
-    # --------------------------------------------------
-    # Safe message lookup
-    # --------------------------------------------------
     def msg(self, key: str, default: str = "") -> str:
         return self.config.get("messages", {}).get(key, default)
 
     # --------------------------------------------------
-    # Authorization
+    # REST helpers
     # --------------------------------------------------
+    def safe_get_json(self, url: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        response = requests.get(url, params=params, timeout=15)
+        response.raise_for_status()
+        return response.json()
+
+    # --------------------------------------------------
+    # Catalogue user authorization
+    # --------------------------------------------------
+    def get_catalogue_user(self, telegram_id: int) -> Optional[Dict[str, Any]]:
+        try:
+            return self.safe_get_json(
+                f"{self.runtime['catalog_url']}/users",
+                params={"telegram_id": telegram_id}
+            )
+        except requests.RequestException:
+            return None
+
     def get_authorized_users(self) -> List[int]:
-        return self.auth.get("authorized_users", [])
+        try:
+            data = self.safe_get_json(f"{self.runtime['catalog_url']}/users")
+            users = data.get("users", [])
 
-    def get_user_devices(self, user_id: int) -> List[str]:
-        return self.auth.get("user_devices", {}).get(str(user_id), [])
+            return [
+                int(user["telegram_id"])
+                for user in users
+                if user.get("status", "active") == "active"
+            ]
 
-    def is_authorized_user_id(self, user_id: int) -> bool:
-        return user_id in self.get_authorized_users()
+        except requests.RequestException:
+            return []
 
-    def is_device_allowed_for_user(self, user_id: int, device_id: str) -> bool:
-        return device_id in self.get_user_devices(user_id)
+    def get_user_devices(self, telegram_id: int) -> List[str]:
+        user = self.get_catalogue_user(telegram_id)
+        if not user:
+            return []
+
+        return user.get("devices", [])
+
+    def is_authorized_user_id(self, telegram_id: int) -> bool:
+        user = self.get_catalogue_user(telegram_id)
+        return bool(user and user.get("status", "active") == "active")
+
+    def is_device_allowed_for_user(self, telegram_id: int, device_id: str) -> bool:
+        return device_id in self.get_user_devices(telegram_id)
 
     def require_authorization_message(self, message) -> bool:
-        if not self.is_authorized_user_id(message.from_user.id):
+        telegram_id = message.from_user.id
+
+        if not self.is_authorized_user_id(telegram_id):
             self.bot.reply_to(
                 message,
                 self.msg("unauthorized", "🚫 You are not authorized to use this bot.")
             )
-            print(f"[SECURITY] Unauthorized access attempt from Telegram ID: {message.from_user.id}")
+            print(f"[SECURITY] Unauthorized access attempt from Telegram ID: {telegram_id}")
             return False
+
         return True
 
     def require_authorization_callback(self, call) -> bool:
-        if not self.is_authorized_user_id(call.from_user.id):
+        telegram_id = call.from_user.id
+
+        if not self.is_authorized_user_id(telegram_id):
             self.bot.answer_callback_query(
                 call.id,
                 self.msg("unauthorized", "🚫 You are not authorized to use this bot."),
                 show_alert=True
             )
-            print(f"[SECURITY] Unauthorized callback attempt from Telegram ID: {call.from_user.id}")
+            print(f"[SECURITY] Unauthorized callback attempt from Telegram ID: {telegram_id}")
             return False
+
         return True
 
     # --------------------------------------------------
-    # Catalogue registration
+    # Catalogue service registration
     # --------------------------------------------------
     def register_service(self) -> None:
         payload = {
@@ -128,21 +164,21 @@ class TelegramPlantBot:
             time.sleep(self.runtime["register_interval"])
 
     # --------------------------------------------------
-    # REST helpers
+    # Device discovery
     # --------------------------------------------------
-    def safe_get_json(self, url: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        response = requests.get(url, params=params, timeout=15)
-        response.raise_for_status()
-        return response.json()
-
     def get_devices_map(self) -> Dict[str, Any]:
         data = self.safe_get_json(f"{self.runtime['alert_generator_url']}/devices")
         return data.get("devices", {})
 
-    def get_allowed_devices_map(self, user_id: int) -> Dict[str, Any]:
+    def get_allowed_devices_map(self, telegram_id: int) -> Dict[str, Any]:
         all_devices = self.get_devices_map()
-        allowed = self.get_user_devices(user_id)
-        return {device_id: data for device_id, data in all_devices.items() if device_id in allowed}
+        allowed_devices = self.get_user_devices(telegram_id)
+
+        return {
+            device_id: data
+            for device_id, data in all_devices.items()
+            if device_id in allowed_devices
+        }
 
     # --------------------------------------------------
     # MQTT
@@ -152,11 +188,17 @@ class TelegramPlantBot:
 
     def on_mqtt_connect(self, client, userdata, flags, rc):
         if rc == 0:
+            self.mqtt_connected = True
             client.subscribe(self.runtime["mqtt_alert_topic"])
             print(f"[MQTT] Connected to {self.runtime['mqtt_broker']}:{self.runtime['mqtt_port']}")
             print(f"[MQTT] Subscribed to {self.runtime['mqtt_alert_topic']}")
         else:
+            self.mqtt_connected = False
             print(f"[MQTT] Connection failed with rc={rc}")
+
+    def on_mqtt_disconnect(self, client, userdata, rc):
+        self.mqtt_connected = False
+        print(f"[MQTT] Disconnected with rc={rc}")
 
     def on_mqtt_message(self, client, userdata, msg):
         try:
@@ -176,10 +218,15 @@ class TelegramPlantBot:
                 )
                 self.mqtt_client.loop_forever()
             except Exception as e:
+                self.mqtt_connected = False
                 print(f"[MQTT] Connection error: {e}")
                 time.sleep(5)
 
-    def publish_command(self, device_id: str, command: str, reason: str, sensor_type: str) -> None:
+    def publish_command(self, device_id: str, command: str, reason: str, sensor_type: str) -> bool:
+        if not self.mqtt_connected:
+            print("[MQTT] Cannot publish command because MQTT is not connected.")
+            return False
+
         payload = {
             "device_id": device_id,
             "command": command,
@@ -189,11 +236,24 @@ class TelegramPlantBot:
         }
 
         topic = self.command_topic(device_id)
-        self.mqtt_client.publish(topic, json.dumps(payload))
-        print(f"[MQTT] Published command to {topic}: {payload}")
+
+        try:
+            info = self.mqtt_client.publish(topic, json.dumps(payload), qos=1)
+            info.wait_for_publish()
+
+            if info.rc == mqtt.MQTT_ERR_SUCCESS:
+                print(f"[MQTT] Published command to {topic}: {payload}")
+                return True
+
+            print(f"[MQTT] Failed to publish command to {topic}, rc={info.rc}")
+            return False
+
+        except Exception as e:
+            print(f"[MQTT] Publish command error: {e}")
+            return False
 
     # --------------------------------------------------
-    # Alert notification logic
+    # Alert notification
     # --------------------------------------------------
     def format_alert_message(self, alert: Dict[str, Any]) -> str:
         return (
@@ -235,18 +295,19 @@ class TelegramPlantBot:
         if not device_id:
             return
 
-        for user_id in self.get_authorized_users():
-            if self.is_device_allowed_for_user(user_id, device_id):
+        for telegram_id in self.get_authorized_users():
+            if self.is_device_allowed_for_user(telegram_id, device_id):
                 try:
                     self.bot.send_message(
-                        user_id,
+                        telegram_id,
                         self.format_alert_message(alert),
                         reply_markup=self.alert_actions_keyboard(device_id, alert_type)
                     )
                 except Exception as e:
                     print(
-                        f"[BOT] Failed to notify user {user_id} for device {device_id}: {e}. "
-                        f"Make sure this is a real Telegram ID and that the user started the bot with /start."
+                        f"[BOT] Failed to notify Telegram user {telegram_id} "
+                        f"for device {device_id}: {e}. "
+                        f"Make sure the user started the bot with /start."
                     )
 
     # --------------------------------------------------
@@ -308,9 +369,9 @@ class TelegramPlantBot:
         )
         return kb
 
-    def devices_keyboard_for_user(self, user_id: int, action_prefix: str) -> InlineKeyboardMarkup:
+    def devices_keyboard_for_user(self, telegram_id: int, action_prefix: str) -> InlineKeyboardMarkup:
         kb = InlineKeyboardMarkup(row_width=1)
-        devices = self.get_allowed_devices_map(user_id)
+        devices = self.get_allowed_devices_map(telegram_id)
 
         for device_id in devices.keys():
             kb.add(
@@ -338,18 +399,12 @@ class TelegramPlantBot:
             InlineKeyboardButton("💨 Increase Humidity", callback_data=f"cmd:{device_id}:increase_humidity:humidity"),
             InlineKeyboardButton("🌬 Decrease Humidity", callback_data=f"cmd:{device_id}:decrease_humidity:humidity")
         )
-        kb.add(
-            InlineKeyboardButton("🛑 Stop Temp Control", callback_data=f"cmd:{device_id}:stop_temperature_control:temperature"),
-            InlineKeyboardButton("🛑 Stop Humidity", callback_data=f"cmd:{device_id}:stop_humidity_adjustment:humidity")
-        )
-        kb.add(
-            InlineKeyboardButton("🛑 Stop Watering", callback_data=f"cmd:{device_id}:stop_watering_adjustment:soil_moisture")
-        )
         kb.add(InlineKeyboardButton("⬅️ Back", callback_data="menu_back"))
+
         return kb
 
     # --------------------------------------------------
-    # Handlers registration
+    # Handler registration
     # --------------------------------------------------
     def register_handlers(self) -> None:
         @self.bot.message_handler(commands=["start"])
@@ -400,6 +455,7 @@ class TelegramPlantBot:
     def handle_help(self, message) -> None:
         if not self.require_authorization_message(message):
             return
+
         self.bot.reply_to(
             message,
             self.msg("help", "Use /start to open the menu.")
@@ -411,6 +467,7 @@ class TelegramPlantBot:
 
         try:
             devices = self.get_allowed_devices_map(message.from_user.id)
+
             if not devices:
                 self.bot.reply_to(message, self.msg("devices_not_found", "⚠️ No devices found."))
                 return
@@ -452,10 +509,12 @@ class TelegramPlantBot:
         try:
             data = self.safe_get_json(f"{self.runtime['alert_generator_url']}/alerts")
             alerts = [
-                a for a in data.get("alerts", [])
-                if self.is_device_allowed_for_user(message.from_user.id, a.get("device_id", ""))
+                alert for alert in data.get("alerts", [])
+                if self.is_device_allowed_for_user(message.from_user.id, alert.get("device_id", ""))
             ]
+
             self.bot.reply_to(message, self.format_alerts(alerts))
+
         except requests.RequestException as e:
             self.bot.reply_to(message, f"Failed to fetch alerts: {e}")
 
@@ -483,6 +542,7 @@ class TelegramPlantBot:
                 params={"device_id": device_id}
             )
             self.bot.reply_to(message, self.format_report(report))
+
         except requests.RequestException as e:
             self.bot.reply_to(message, f"Failed to fetch report: {e}")
 
@@ -494,7 +554,7 @@ class TelegramPlantBot:
             return
 
         try:
-            user_id = call.from_user.id
+            telegram_id = call.from_user.id
 
             if call.data == "menu_back":
                 self.bot.send_message(
@@ -511,7 +571,7 @@ class TelegramPlantBot:
                 )
 
             elif call.data == "menu_devices":
-                devices = self.get_allowed_devices_map(user_id)
+                devices = self.get_allowed_devices_map(telegram_id)
 
                 if not devices:
                     self.bot.send_message(
@@ -523,11 +583,11 @@ class TelegramPlantBot:
                     self.bot.send_message(
                         call.message.chat.id,
                         self.msg("choose_device", "🪴 Select one of your devices:"),
-                        reply_markup=self.devices_keyboard_for_user(user_id, "status")
+                        reply_markup=self.devices_keyboard_for_user(telegram_id, "status")
                     )
 
             elif call.data == "menu_report_devices":
-                devices = self.get_allowed_devices_map(user_id)
+                devices = self.get_allowed_devices_map(telegram_id)
 
                 if not devices:
                     self.bot.send_message(
@@ -539,11 +599,11 @@ class TelegramPlantBot:
                     self.bot.send_message(
                         call.message.chat.id,
                         self.msg("choose_report_device", "📊 Select one of your devices for the report:"),
-                        reply_markup=self.devices_keyboard_for_user(user_id, "report")
+                        reply_markup=self.devices_keyboard_for_user(telegram_id, "report")
                     )
 
             elif call.data == "menu_command_devices":
-                devices = self.get_allowed_devices_map(user_id)
+                devices = self.get_allowed_devices_map(telegram_id)
 
                 if not devices:
                     self.bot.send_message(
@@ -555,15 +615,16 @@ class TelegramPlantBot:
                     self.bot.send_message(
                         call.message.chat.id,
                         self.msg("choose_command_device", "⚙️ Select a device to control:"),
-                        reply_markup=self.devices_keyboard_for_user(user_id, "command_device")
+                        reply_markup=self.devices_keyboard_for_user(telegram_id, "command_device")
                     )
 
             elif call.data == "menu_alerts":
                 data = self.safe_get_json(f"{self.runtime['alert_generator_url']}/alerts")
                 alerts = [
-                    a for a in data.get("alerts", [])
-                    if self.is_device_allowed_for_user(user_id, a.get("device_id", ""))
+                    alert for alert in data.get("alerts", [])
+                    if self.is_device_allowed_for_user(telegram_id, alert.get("device_id", ""))
                 ]
+
                 self.bot.send_message(
                     call.message.chat.id,
                     self.format_alerts(alerts),
@@ -573,27 +634,21 @@ class TelegramPlantBot:
             elif call.data.startswith("status:"):
                 device_id = call.data.split(":", 1)[1]
 
-                if not self.is_device_allowed_for_user(user_id, device_id):
-                    self.bot.send_message(
-                        call.message.chat.id,
-                        self.msg("device_not_allowed", "🚫 You are not allowed to access this device.")
-                    )
+                if not self.is_device_allowed_for_user(telegram_id, device_id):
+                    self.bot.send_message(call.message.chat.id, self.msg("device_not_allowed", "🚫 You are not allowed to access this device."))
                 else:
                     data = self.safe_get_json(f"{self.runtime['alert_generator_url']}/devices/{device_id}")
                     self.bot.send_message(
                         call.message.chat.id,
                         self.format_device_status(device_id, data),
-                        reply_markup=self.devices_keyboard_for_user(user_id, "status")
+                        reply_markup=self.devices_keyboard_for_user(telegram_id, "status")
                     )
 
             elif call.data.startswith("report:"):
                 device_id = call.data.split(":", 1)[1]
 
-                if not self.is_device_allowed_for_user(user_id, device_id):
-                    self.bot.send_message(
-                        call.message.chat.id,
-                        self.msg("device_not_allowed", "🚫 You are not allowed to access this device.")
-                    )
+                if not self.is_device_allowed_for_user(telegram_id, device_id):
+                    self.bot.send_message(call.message.chat.id, self.msg("device_not_allowed", "🚫 You are not allowed to access this device."))
                 else:
                     report = self.safe_get_json(
                         f"{self.runtime['alert_generator_url']}/report",
@@ -602,17 +657,14 @@ class TelegramPlantBot:
                     self.bot.send_message(
                         call.message.chat.id,
                         self.format_report(report),
-                        reply_markup=self.devices_keyboard_for_user(user_id, "report")
+                        reply_markup=self.devices_keyboard_for_user(telegram_id, "report")
                     )
 
             elif call.data.startswith("command_device:"):
                 device_id = call.data.split(":", 1)[1]
 
-                if not self.is_device_allowed_for_user(user_id, device_id):
-                    self.bot.send_message(
-                        call.message.chat.id,
-                        self.msg("device_not_allowed", "🚫 You are not allowed to access this device.")
-                    )
+                if not self.is_device_allowed_for_user(telegram_id, device_id):
+                    self.bot.send_message(call.message.chat.id, self.msg("device_not_allowed", "🚫 You are not allowed to access this device."))
                 else:
                     self.bot.send_message(
                         call.message.chat.id,
@@ -627,23 +679,28 @@ class TelegramPlantBot:
 
                 _, device_id, command, sensor_type = parts
 
-                if not self.is_device_allowed_for_user(user_id, device_id):
-                    self.bot.send_message(
-                        call.message.chat.id,
-                        self.msg("device_not_allowed", "🚫 You are not allowed to access this device.")
-                    )
+                if not self.is_device_allowed_for_user(telegram_id, device_id):
+                    self.bot.send_message(call.message.chat.id, self.msg("device_not_allowed", "🚫 You are not allowed to access this device."))
                 else:
-                    self.publish_command(
+                    success = self.publish_command(
                         device_id=device_id,
                         command=command,
                         reason="telegram_user_command",
                         sensor_type=sensor_type
                     )
-                    self.bot.send_message(
-                        call.message.chat.id,
-                        f"{self.msg('command_sent', '✅ Command sent successfully.')}\nDevice: {device_id}\nCommand: {command}",
-                        reply_markup=self.command_actions_keyboard(device_id)
-                    )
+
+                    if success:
+                        self.bot.send_message(
+                            call.message.chat.id,
+                            f"{self.msg('command_sent', '✅ Command sent successfully.')}\nDevice: {device_id}\nCommand: {command}",
+                            reply_markup=self.command_actions_keyboard(device_id)
+                        )
+                    else:
+                        self.bot.send_message(
+                            call.message.chat.id,
+                            f"❌ Failed to send command.\nDevice: {device_id}\nCommand: {command}",
+                            reply_markup=self.command_actions_keyboard(device_id)
+                        )
 
             self.bot.answer_callback_query(call.id)
 
@@ -658,6 +715,7 @@ class TelegramPlantBot:
     def handle_unknown(self, message) -> None:
         if not self.require_authorization_message(message):
             return
+
         self.bot.reply_to(
             message,
             self.msg("unknown_command", "🤖 Unknown command. Use /start or /help")
@@ -668,7 +726,7 @@ class TelegramPlantBot:
     # --------------------------------------------------
     def run(self) -> None:
         print("[START] Telegram Bot starting...")
-        print(f"[INFO] Authorized users: {self.get_authorized_users()}")
+        print("[INFO] Authorization source: Catalogue /users")
 
         threading.Thread(target=self.registration_loop, daemon=True).start()
         threading.Thread(target=self.mqtt_loop, daemon=True).start()

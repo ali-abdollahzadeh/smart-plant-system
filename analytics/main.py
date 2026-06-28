@@ -6,8 +6,8 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import cherrypy
-import requests
 import paho.mqtt.client as mqtt
+import requests
 
 
 class AppConfig:
@@ -94,8 +94,10 @@ class AnalyticsControlService:
         self.config = AppConfig.load_json(self.runtime["config_file"])
         self.state = SharedState()
 
+        self.mqtt_connected = False
         self.mqtt_client = mqtt.Client()
         self.mqtt_client.on_connect = self.on_connect
+        self.mqtt_client.on_disconnect = self.on_disconnect
         self.mqtt_client.on_message = self.on_message
 
     # --------------------------------------------------
@@ -112,6 +114,9 @@ class AnalyticsControlService:
 
     def commands(self) -> Dict[str, str]:
         return self.config["commands"]
+
+    def command_topic(self, device_id: str) -> str:
+        return f"{self.command_topic_base()}/{device_id}"
 
     # --------------------------------------------------
     # Catalogue registration
@@ -147,16 +152,22 @@ class AnalyticsControlService:
             time.sleep(self.runtime["register_interval"])
 
     # --------------------------------------------------
-    # MQTT handling
+    # MQTT
     # --------------------------------------------------
     def on_connect(self, client, userdata, flags, rc):
         if rc == 0:
+            self.mqtt_connected = True
             topic = self.sensor_topic()
             client.subscribe(topic)
             print(f"[MQTT] Connected to {self.runtime['mqtt_broker']}:{self.runtime['mqtt_port']}")
             print(f"[MQTT] Subscribed to {topic}")
         else:
+            self.mqtt_connected = False
             print(f"[MQTT] Connection failed with rc={rc}")
+
+    def on_disconnect(self, client, userdata, rc):
+        self.mqtt_connected = False
+        print(f"[MQTT] Disconnected with rc={rc}")
 
     def on_message(self, client, userdata, msg):
         try:
@@ -170,8 +181,8 @@ class AnalyticsControlService:
                 return
 
             self.state.set_latest_data(device_id, sensor_data)
-
             print(f"[MQTT] Received from {msg.topic}: {sensor_data}")
+
             self.evaluate_controls(sensor_data)
 
         except json.JSONDecodeError:
@@ -189,6 +200,7 @@ class AnalyticsControlService:
                 )
                 self.mqtt_client.loop_forever()
             except Exception as e:
+                self.mqtt_connected = False
                 print(f"[MQTT] Connection error: {e}")
                 print("[MQTT] Retrying in 5 seconds...")
                 time.sleep(5)
@@ -199,7 +211,12 @@ class AnalyticsControlService:
     def publish_command(self, device_id: str, command: str, reason: str, sensor_type: str) -> None:
         last_command = self.state.get_last_command_for_sensor(device_id, sensor_type)
 
+        # Prevent duplicate repeated publishing
         if last_command == command:
+            return
+
+        if not self.mqtt_connected:
+            print(f"[MQTT] Cannot publish command, client not connected: {command} for {device_id}")
             return
 
         payload = {
@@ -210,15 +227,62 @@ class AnalyticsControlService:
             "timestamp": AppConfig.now_utc_iso()
         }
 
-        topic = f"{self.command_topic_base()}/{device_id}"
+        topic = self.command_topic(device_id)
 
         try:
-            self.mqtt_client.publish(topic, json.dumps(payload))
-            print(f"[MQTT] Published command to {topic}: {payload}")
-            self.state.add_command(device_id, sensor_type, payload)
+            info = self.mqtt_client.publish(topic, json.dumps(payload), qos=1)
+            info.wait_for_publish()
+
+            if info.rc == mqtt.MQTT_ERR_SUCCESS:
+                print(f"[MQTT] Published command to {topic}: {payload}")
+                self.state.add_command(device_id, sensor_type, payload)
+            else:
+                print(f"[MQTT] Failed to publish command to {topic}, rc={info.rc}")
 
         except Exception as e:
             print(f"[MQTT] Publish command error: {e}")
+
+    # --------------------------------------------------
+    # Rule engine helpers
+    # --------------------------------------------------
+    def evaluate_sensor_rule(
+        self,
+        device_id: str,
+        sensor_type: str,
+        value: Optional[float],
+        threshold_min: float,
+        threshold_max: float,
+        low_command: str,
+        high_command: str,
+        normal_command: str,
+        low_reason: str,
+        high_reason: str,
+        normal_reason: str
+    ) -> None:
+        if value is None:
+            return
+
+        if value < threshold_min:
+            self.publish_command(
+                device_id=device_id,
+                command=low_command,
+                reason=low_reason,
+                sensor_type=sensor_type
+            )
+        elif value > threshold_max:
+            self.publish_command(
+                device_id=device_id,
+                command=high_command,
+                reason=high_reason,
+                sensor_type=sensor_type
+            )
+        else:
+            self.publish_command(
+                device_id=device_id,
+                command=normal_command,
+                reason=normal_reason,
+                sensor_type=sensor_type
+            )
 
     # --------------------------------------------------
     # Rule engine
@@ -228,87 +292,47 @@ class AnalyticsControlService:
         thresholds = self.thresholds()
         commands = self.commands()
 
-        temperature = sensor_data.get("temperature")
-        soil_moisture = sensor_data.get("soil_moisture")
-        humidity = sensor_data.get("humidity")
+        self.evaluate_sensor_rule(
+            device_id=device_id,
+            sensor_type="temperature",
+            value=sensor_data.get("temperature"),
+            threshold_min=thresholds["temperature"]["min"],
+            threshold_max=thresholds["temperature"]["max"],
+            low_command=commands["temperature_low"],
+            high_command=commands["temperature_high"],
+            normal_command=commands["temperature_normal"],
+            low_reason="temperature_below_min_threshold",
+            high_reason="temperature_above_max_threshold",
+            normal_reason="temperature_back_to_normal_range"
+        )
 
-        if temperature is not None:
-            temp_min = thresholds["temperature"]["min"]
-            temp_max = thresholds["temperature"]["max"]
+        self.evaluate_sensor_rule(
+            device_id=device_id,
+            sensor_type="soil_moisture",
+            value=sensor_data.get("soil_moisture"),
+            threshold_min=thresholds["soil_moisture"]["min"],
+            threshold_max=thresholds["soil_moisture"]["max"],
+            low_command=commands["soil_moisture_low"],
+            high_command=commands["soil_moisture_high"],
+            normal_command=commands["soil_moisture_normal"],
+            low_reason="soil_moisture_below_min_threshold",
+            high_reason="soil_moisture_above_max_threshold",
+            normal_reason="soil_moisture_back_to_normal_range"
+        )
 
-            if temperature < temp_min:
-                self.publish_command(
-                    device_id=device_id,
-                    command=commands["temperature_low"],
-                    reason="temperature_below_min_threshold",
-                    sensor_type="temperature"
-                )
-            elif temperature > temp_max:
-                self.publish_command(
-                    device_id=device_id,
-                    command=commands["temperature_high"],
-                    reason="temperature_above_max_threshold",
-                    sensor_type="temperature"
-                )
-            else:
-                self.publish_command(
-                    device_id=device_id,
-                    command=commands["temperature_normal"],
-                    reason="temperature_back_to_normal_range",
-                    sensor_type="temperature"
-                )
-
-        if soil_moisture is not None:
-            soil_min = thresholds["soil_moisture"]["min"]
-            soil_max = thresholds["soil_moisture"]["max"]
-
-            if soil_moisture < soil_min:
-                self.publish_command(
-                    device_id=device_id,
-                    command=commands["soil_moisture_low"],
-                    reason="soil_moisture_below_min_threshold",
-                    sensor_type="soil_moisture"
-                )
-            elif soil_moisture > soil_max:
-                self.publish_command(
-                    device_id=device_id,
-                    command=commands["soil_moisture_high"],
-                    reason="soil_moisture_above_max_threshold",
-                    sensor_type="soil_moisture"
-                )
-            else:
-                self.publish_command(
-                    device_id=device_id,
-                    command=commands["soil_moisture_normal"],
-                    reason="soil_moisture_back_to_normal_range",
-                    sensor_type="soil_moisture"
-                )
-
-        if humidity is not None:
-            hum_min = thresholds["humidity"]["min"]
-            hum_max = thresholds["humidity"]["max"]
-
-            if humidity < hum_min:
-                self.publish_command(
-                    device_id=device_id,
-                    command=commands["humidity_low"],
-                    reason="humidity_below_min_threshold",
-                    sensor_type="humidity"
-                )
-            elif humidity > hum_max:
-                self.publish_command(
-                    device_id=device_id,
-                    command=commands["humidity_high"],
-                    reason="humidity_above_max_threshold",
-                    sensor_type="humidity"
-                )
-            else:
-                self.publish_command(
-                    device_id=device_id,
-                    command=commands["humidity_normal"],
-                    reason="humidity_back_to_normal_range",
-                    sensor_type="humidity"
-                )
+        self.evaluate_sensor_rule(
+            device_id=device_id,
+            sensor_type="humidity",
+            value=sensor_data.get("humidity"),
+            threshold_min=thresholds["humidity"]["min"],
+            threshold_max=thresholds["humidity"]["max"],
+            low_command=commands["humidity_low"],
+            high_command=commands["humidity_high"],
+            normal_command=commands["humidity_normal"],
+            low_reason="humidity_below_min_threshold",
+            high_reason="humidity_above_max_threshold",
+            normal_reason="humidity_back_to_normal_range"
+        )
 
     # --------------------------------------------------
     # Background tasks
@@ -355,7 +379,8 @@ class HealthAPI:
         return {
             "status": "ok",
             "timestamp": AppConfig.now_utc_iso(),
-            "service_id": self.service.runtime["service_id"]
+            "service_id": self.service.runtime["service_id"],
+            "mqtt_connected": self.service.mqtt_connected
         }
 
 

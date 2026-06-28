@@ -13,6 +13,7 @@ class CatalogueConfig:
         self.port = int(os.environ.get("CATALOG_PORT", 8000))
 
         self.default_catalog = {
+            "users": [],
             "devices": [],
             "services": [],
             "config": {
@@ -56,10 +57,20 @@ class CatalogueStorage:
                 self.save_catalog(data)
 
             data.setdefault("devices", [])
+            data.setdefault("users", [])
             data.setdefault("services", [])
             data.setdefault("config", {})
             return data
+    def validate_user(self, user: Dict[str, Any]) -> Optional[str]:
+         required = ["id", "name", "telegram_id", "devices"]
+         for field in required:
+            if field not in user:
+                return f"Missing required field: {field}"
 
+         if not isinstance(user["devices"], list):
+            return "devices must be a list"
+   
+         return None
     def save_catalog(self, data: Dict[str, Any]) -> None:
         with self.lock:
             temp_file = f"{self.config.catalog_file}.tmp"
