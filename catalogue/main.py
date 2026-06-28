@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 
 class CatalogueConfig:
     def __init__(self) -> None:
+        
         self.catalog_file = os.environ.get("CATALOG_FILE", "catalog.json")
         self.host = os.environ.get("CATALOG_HOST", "0.0.0.0")
         self.port = int(os.environ.get("CATALOG_PORT", 8000))
@@ -488,76 +489,72 @@ class CatalogueDispatcher:
     exposed = True
 
     def __init__(self, service: CatalogueService) -> None:
-        self.users_api = UsersAPI(service)
         self.service = service
         self.root = RootAPI(service)
         self.devices_api = DevicesAPI(service)
         self.services_api = ServicesAPI(service)
+        self.users_api = UsersAPI(service)
         self.config_api = ConfigAPI(service)
 
     @cherrypy.tools.json_out()
     def GET(self, *vpath, **params):
-        return self._dispatch("GET", *vpath)
+        return self._dispatch("GET", *vpath, **params)
 
     @cherrypy.tools.json_in()
     @cherrypy.tools.json_out()
     def POST(self, *vpath, **params):
-        return self._dispatch("POST", *vpath)
+        return self._dispatch("POST", *vpath, **params)
 
     @cherrypy.tools.json_in()
     @cherrypy.tools.json_out()
     def PUT(self, *vpath, **params):
-        return self._dispatch("PUT", *vpath)
+        return self._dispatch("PUT", *vpath, **params)
 
     @cherrypy.tools.json_out()
     def DELETE(self, *vpath, **params):
-        return self._dispatch("DELETE", *vpath)
+        return self._dispatch("DELETE", *vpath, **params)
 
-    def _dispatch(self, method: str, *vpath):
-        if vpath[0] == "users":
-            user_id = vpath[1] if len(vpath) > 1 else None
-            if method == "GET":
-              telegram_id = params.get("telegram_id") if params else None
-              return self.users_api.GET(user_id=user_id, telegram_id=telegram_id)
-            if method == "POST":
-               return self.users_api.POST()
+    def _dispatch(self, method: str, *vpath, **params):
         if len(vpath) == 0 or vpath == ("",):
             return getattr(self.root, method)()
 
         if vpath[0] == "devices":
             device_id = vpath[1] if len(vpath) > 1 else None
+
             if method in ["GET", "PUT", "DELETE"]:
                 return getattr(self.devices_api, method)(device_id=device_id)
-            return getattr(self.devices_api, method)()
+
+            if method == "POST":
+                return self.devices_api.POST()
 
         if vpath[0] == "services":
             service_id = vpath[1] if len(vpath) > 1 else None
+
             if method in ["GET", "PUT", "DELETE"]:
                 return getattr(self.services_api, method)(service_id=service_id)
-            return getattr(self.services_api, method)()
+
+            if method == "POST":
+                return self.services_api.POST()
+
+        if vpath[0] == "users":
+            user_id = vpath[1] if len(vpath) > 1 else None
+
+            if method == "GET":
+                telegram_id = params.get("telegram_id")
+                return self.users_api.GET(user_id=user_id, telegram_id=telegram_id)
+
+            if method == "POST":
+                return self.users_api.POST()
+
+            return self.service.error_response(405, f"Method {method} not allowed for users")
 
         if vpath[0] == "config":
             if len(vpath) > 1:
                 return self.service.error_response(404, "Invalid config path")
-            return getattr(self.config_api, method)()
+
+            if method in ["GET", "PUT"]:
+                return getattr(self.config_api, method)()
+
+            return self.service.error_response(405, f"Method {method} not allowed for config")
 
         return self.service.error_response(404, "Endpoint not found")
-
-
-if __name__ == "__main__":
-    service = CatalogueService()
-
-    cherrypy.config.update({
-        "server.socket_host": service.config.host,
-        "server.socket_port": service.config.port,
-        "log.screen": True
-    })
-
-    conf = {
-        "/": {
-            "request.dispatch": cherrypy.dispatch.MethodDispatcher()
-        }
-    }
-
-    app = CatalogueDispatcher(service)
-    cherrypy.quickstart(app, "/", conf)
