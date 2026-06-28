@@ -558,3 +558,20 @@ class CatalogueDispatcher:
             return self.service.error_response(405, f"Method {method} not allowed for config")
 
         return self.service.error_response(404, "Endpoint not found")
+if __name__ == "__main__":
+    service = CatalogueService()
+
+    cherrypy.config.update({
+        "server.socket_host": service.config.host,
+        "server.socket_port": service.config.port,
+        "log.screen": True
+    })
+
+    conf = {
+        "/": {
+            "request.dispatch": cherrypy.dispatch.MethodDispatcher()
+        }
+    }
+
+    app = CatalogueDispatcher(service)
+    cherrypy.quickstart(app, "/", conf)
