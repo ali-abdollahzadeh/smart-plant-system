@@ -87,6 +87,50 @@ class CatalogueService:
     # --------------------------------------------------
     # Helpers
     # --------------------------------------------------
+    def get_users(self, user_id: Optional[str] = None) -> Dict[str, Any]:
+        data = self.storage.load_catalog()
+
+        if user_id:
+            user = self.find_by_id(data["users"], user_id)
+            if not user:
+               return self.error_response(404, f"User '{user_id}' not found")
+            return user
+
+        return {
+                "count": len(data["users"]),
+                "users": data["users"]
+        }
+
+
+    def get_user_by_telegram_id(self, telegram_id: int) -> Optional[Dict[str, Any]]:
+        data = self.storage.load_catalog()
+        for user in data["users"]:
+            if int(user.get("telegram_id", -1)) == int(telegram_id):
+               return user
+        return None
+
+
+    def create_or_update_user(self, user: Dict[str, Any]) -> Dict[str, Any]:
+        validation_error = self.validate_user(user)
+        if validation_error:
+            return self.error_response(400, validation_error)
+
+        data = self.storage.load_catalog()
+        existing = self.find_by_id(data["users"], user["id"])
+        created_at = existing.get("created_at") if existing else self.config.now_utc_iso()
+
+        user["created_at"] = created_at
+        user["last_update"] = self.config.now_utc_iso()
+        user["status"] = user.get("status", "active")
+
+        action = self.upsert_by_id(data["users"], user)
+        self.storage.save_catalog(data)
+
+        cherrypy.response.status = 201 if action == "created" else 200
+        return {
+              "message": f"User {action} successfully",
+              "user": user
+        }
     def find_by_id(self, items: List[Dict[str, Any]], item_id: str) -> Optional[Dict[str, Any]]:
         for item in items:
             if item.get("id") == item_id:
@@ -322,6 +366,9 @@ class CatalogueService:
         return {
             "message": "Welcome to Smart Plant Care System Catalogue",
             "endpoints": {
+                "users": "/users",
+                "user_by_id": "/users/<user_id>",
+                "user_by_telegram_id": "/users?telegram_id=123456789",
                 "devices": "/devices",
                 "device_by_id": "/devices/<device_id>",
                 "services": "/services",
@@ -330,15 +377,37 @@ class CatalogueService:
             },
             "summary": {
                 "devices": len(data["devices"]),
+                "users": len(data["users"]),
                 "services": len(data["services"])
             }
         }
 
+class UsersAPI:
+    exposed = True
 
+    def __init__(self, service: CatalogueService) -> None:
+        self.service = service
+
+    @cherrypy.tools.json_out()
+    def GET(self, user_id=None, telegram_id=None):
+        if telegram_id:
+            user = self.service.get_user_by_telegram_id(int(telegram_id))
+            if not user:
+                return self.service.error_response(404, f"Telegram user '{telegram_id}' not found")
+            return user
+
+        return self.service.get_users(user_id=user_id)
+
+    @cherrypy.tools.json_in()
+    @cherrypy.tools.json_out()
+    def POST(self):
+        return self.service.create_or_update_user(cherrypy.request.json)
+            
 class RootAPI:
     exposed = True
 
     def __init__(self, service: CatalogueService) -> None:
+        self.users = UsersAPI(service)
         self.service = service
         self.devices = DevicesAPI(service)
         self.services = ServicesAPI(service)
@@ -419,6 +488,7 @@ class CatalogueDispatcher:
     exposed = True
 
     def __init__(self, service: CatalogueService) -> None:
+        self.users_api = UsersAPI(service)
         self.service = service
         self.root = RootAPI(service)
         self.devices_api = DevicesAPI(service)
@@ -444,6 +514,13 @@ class CatalogueDispatcher:
         return self._dispatch("DELETE", *vpath)
 
     def _dispatch(self, method: str, *vpath):
+        if vpath[0] == "users":
+            user_id = vpath[1] if len(vpath) > 1 else None
+            if method == "GET":
+              telegram_id = params.get("telegram_id") if params else None
+              return self.users_api.GET(user_id=user_id, telegram_id=telegram_id)
+            if method == "POST":
+               return self.users_api.POST()
         if len(vpath) == 0 or vpath == ("",):
             return getattr(self.root, method)()
 

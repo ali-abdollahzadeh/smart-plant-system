@@ -103,7 +103,6 @@ services:
       SERVICE_TYPE: telegram_bot
       REGISTER_INTERVAL: 60
       CONFIG_FILE: /app/config.json
-      AUTH_FILE: /app/auth.json
     depends_on:
       - catalogue
       - alert-generator
