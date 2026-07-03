@@ -340,7 +340,7 @@ class TelegramPlantBot:
             f"🌡 Temperature: {data.get('temperature', 'N/A')}\n"
             f"💧 Soil Moisture: {data.get('soil_moisture', 'N/A')}\n"
             f"💨 Humidity: {data.get('humidity', 'N/A')}\n"
-            f"📌 Status: {data.get('status', 'N/A')}\n"
+            #f"📌 Status: {data.get('status', 'N/A')}\n"
             f"⏱ Timestamp: {data.get('timestamp', 'N/A')}"
         )
 
