@@ -73,7 +73,7 @@
             "endpoint": "http://thingspeak-adapter:8080",
             "status": "active",
             "created_at": "2026-03-08T18:20:07+00:00",
-            "last_update": "2026-07-03T07:49:03+00:00"
+            "last_update": "2026-07-03T07:50:03+00:00"
         },
         {
             "id": "analytics-control",
@@ -91,7 +91,7 @@
             "endpoint": "http://alert-generator:8091",
             "status": "active",
             "created_at": "2026-03-08T18:20:08+00:00",
-            "last_update": "2026-07-03T07:49:03+00:00"
+            "last_update": "2026-07-03T07:50:03+00:00"
         },
         {
             "id": "telegram-bot",
@@ -100,7 +100,7 @@
             "endpoint": "telegram-bot",
             "status": "active",
             "created_at": "2026-03-09T16:41:58+00:00",
-            "last_update": "2026-07-03T07:49:03+00:00"
+            "last_update": "2026-07-03T07:50:03+00:00"
         },
         {
             "id": "analytics",
@@ -109,7 +109,7 @@
             "endpoint": "http://analytics:8090",
             "status": "active",
             "created_at": "2026-03-09T16:41:58+00:00",
-            "last_update": "2026-07-03T07:49:03+00:00"
+            "last_update": "2026-07-03T07:50:03+00:00"
         },
         {
             "id": "nodered",
