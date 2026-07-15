@@ -60,7 +60,9 @@ services:
       - mosquitto
     restart: unless-stopped
   alert-generator:
-    build: ./alert_generator
+    build:
+      context: .
+      dockerfile: alert_generator/Dockerfile
     container_name: alert-generator
     env_file:
       - .env

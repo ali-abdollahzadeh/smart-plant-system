@@ -20,11 +20,13 @@ ENV MQTT_PORT=1883
 ENV THINGSPEAK_ADAPTER_URL=http://thingspeak-adapter:8080
 ENV CONFIG_FILE=/app/config.json
 
-COPY requirements.txt .
+COPY alert_generator/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY main.py .
-COPY config.json .
+COPY shared/ /app/shared/
+COPY alert_generator/main.py .
+COPY alert_generator/config.json .
+COPY alert_generator/rule_engine.py .
 
 EXPOSE 8091
 

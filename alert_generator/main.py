@@ -7,7 +7,8 @@ from typing import Any, Dict, List, Optional
 
 import cherrypy
 import requests
-import paho.mqtt.client as mqtt
+from shared.MyMQTT import MyMQTT
+from rule_engine import AlertRuleEngine
 
 
 class AppConfig:
@@ -76,10 +77,14 @@ class AlertGeneratorService:
         self.runtime = AppConfig.load_runtime_config()
         self.config = AppConfig.load_json(self.runtime["config_file"])
         self.state = SharedState()
+        self.rule_engine = AlertRuleEngine(self.config["thresholds"])
 
-        self.mqtt_client = mqtt.Client()
-        self.mqtt_client.on_connect = self.on_connect
-        self.mqtt_client.on_message = self.on_message
+        self.mqtt_client = MyMQTT(
+            clientID=self.runtime["service_id"],
+            broker=self.runtime["mqtt_broker"],
+            port=self.runtime["mqtt_port"],
+            notifier=self
+        )
 
     # --------------------------------------------------
     # Config helpers
@@ -130,21 +135,12 @@ class AlertGeneratorService:
             time.sleep(self.runtime["register_interval"])
 
     # --------------------------------------------------
-    # MQTT
+    # MQTT Actions & Callback
     # --------------------------------------------------
-    def on_connect(self, client, userdata, flags, rc):
-        if rc == 0:
-            topic = self.sensor_topic()
-            client.subscribe(topic)
-            print(f"[MQTT] Connected to {self.runtime['mqtt_broker']}:{self.runtime['mqtt_port']}")
-            print(f"[MQTT] Subscribed to {topic}")
-        else:
-            print(f"[MQTT] Connection failed with rc={rc}")
-
-    def on_message(self, client, userdata, msg):
+    def notify(self, topic: str, payload: str) -> None:
         try:
-            sensor_data = json.loads(msg.payload.decode("utf-8"))
-            sensor_data["_mqtt_topic"] = msg.topic
+            sensor_data = json.loads(payload)
+            sensor_data["_mqtt_topic"] = topic
             sensor_data["_received_at"] = AppConfig.now_utc_iso()
 
             device_id = sensor_data.get("device_id")
@@ -152,10 +148,12 @@ class AlertGeneratorService:
                 print("[MQTT] Missing device_id in payload")
                 return
 
+               # Cache the latest sensor update
             self.state.set_latest_data(device_id, sensor_data)
-            print(f"[MQTT] Received from {msg.topic}: {sensor_data}")
+            print(f"[MQTT] Received from {topic}: {sensor_data}")
 
-            alerts = self.generate_alerts(sensor_data)
+            # Analyze thresholds
+            alerts = self.rule_engine.generate_alerts(sensor_data)
             for alert in alerts:
                 self.publish_alert(alert)
 
@@ -164,108 +162,10 @@ class AlertGeneratorService:
         except Exception as e:
             print(f"[MQTT] Processing error: {e}")
 
-    def mqtt_loop(self) -> None:
-        while True:
-            try:
-                self.mqtt_client.connect(
-                    self.runtime["mqtt_broker"],
-                    self.runtime["mqtt_port"],
-                    keepalive=60
-                )
-                self.mqtt_client.loop_forever()
-            except Exception as e:
-                print(f"[MQTT] Connection error: {e}")
-                print("[MQTT] Retrying in 5 seconds...")
-                time.sleep(5)
-
-    # --------------------------------------------------
-    # Alert logic
-    # --------------------------------------------------
-    def generate_alerts(self, sensor_data: Dict[str, Any]) -> List[Dict[str, Any]]:
-        thresholds = self.thresholds()
-        device_id = sensor_data["device_id"]
-        alerts = []
-
-        temperature = sensor_data.get("temperature")
-        soil_moisture = sensor_data.get("soil_moisture")
-        humidity = sensor_data.get("humidity")
-
-        if temperature is not None:
-            temp_min = thresholds["temperature"]["min"]
-            temp_max = thresholds["temperature"]["max"]
-
-            if temperature < temp_min:
-                alerts.append({
-                    "device_id": device_id,
-                    "alert": "low_temperature",
-                    "value": temperature,
-                    "threshold": temp_min,
-                    "threshold_type": "min",
-                    "timestamp": AppConfig.now_utc_iso()
-                })
-            elif temperature > temp_max:
-                alerts.append({
-                    "device_id": device_id,
-                    "alert": "high_temperature",
-                    "value": temperature,
-                    "threshold": temp_max,
-                    "threshold_type": "max",
-                    "timestamp": AppConfig.now_utc_iso()
-                })
-
-        if soil_moisture is not None:
-            soil_min = thresholds["soil_moisture"]["min"]
-            soil_max = thresholds["soil_moisture"]["max"]
-
-            if soil_moisture < soil_min:
-                alerts.append({
-                    "device_id": device_id,
-                    "alert": "low_soil_moisture",
-                    "value": soil_moisture,
-                    "threshold": soil_min,
-                    "threshold_type": "min",
-                    "timestamp": AppConfig.now_utc_iso()
-                })
-            elif soil_moisture > soil_max:
-                alerts.append({
-                    "device_id": device_id,
-                    "alert": "high_soil_moisture",
-                    "value": soil_moisture,
-                    "threshold": soil_max,
-                    "threshold_type": "max",
-                    "timestamp": AppConfig.now_utc_iso()
-                })
-
-        if humidity is not None:
-            hum_min = thresholds["humidity"]["min"]
-            hum_max = thresholds["humidity"]["max"]
-
-            if humidity < hum_min:
-                alerts.append({
-                    "device_id": device_id,
-                    "alert": "low_humidity",
-                    "value": humidity,
-                    "threshold": hum_min,
-                    "threshold_type": "min",
-                    "timestamp": AppConfig.now_utc_iso()
-                })
-            elif humidity > hum_max:
-                alerts.append({
-                    "device_id": device_id,
-                    "alert": "high_humidity",
-                    "value": humidity,
-                    "threshold": hum_max,
-                    "threshold_type": "max",
-                    "timestamp": AppConfig.now_utc_iso()
-                })
-
-        return alerts
-
     def publish_alert(self, alert: Dict[str, Any]) -> None:
         topic = f"{self.alert_topic_base()}/{alert['device_id']}"
-
         try:
-            self.mqtt_client.publish(topic, json.dumps(alert))
+            self.mqtt_client.myPublish(topic, alert)
             self.state.add_alert(alert)
             print(f"[MQTT] Published alert to {topic}: {alert}")
         except Exception as e:
@@ -325,11 +225,12 @@ class AlertGeneratorService:
     # Background tasks
     # --------------------------------------------------
     def start_background_threads(self) -> None:
-        threading.Thread(target=self.mqtt_loop, daemon=True).start()
+        self.mqtt_client.start()
+        self.mqtt_client.mySubscribe(self.sensor_topic())
         threading.Thread(target=self.registration_loop, daemon=True).start()
 
 
-class RootAPI:
+class RootAPI(object):
     exposed = True
 
     def __init__(self, service: AlertGeneratorService) -> None:
@@ -340,7 +241,7 @@ class RootAPI:
         self.report = ReportAPI(service)
 
     @cherrypy.tools.json_out()
-    def GET(self):
+    def GET(self, *path, **query):
         return {
             "message": "Alert Generator is running",
             "endpoints": {
@@ -353,14 +254,14 @@ class RootAPI:
         }
 
 
-class HealthAPI:
+class HealthAPI(object):
     exposed = True
 
     def __init__(self, service: AlertGeneratorService) -> None:
         self.service = service
 
     @cherrypy.tools.json_out()
-    def GET(self):
+    def GET(self, *path, **query):
         return {
             "status": "ok",
             "timestamp": AppConfig.now_utc_iso(),
@@ -368,19 +269,19 @@ class HealthAPI:
         }
 
 
-class DevicesAPI:
+class DevicesAPI(object):
     exposed = True
 
     def __init__(self, service: AlertGeneratorService) -> None:
         self.service = service
 
     @cherrypy.tools.json_out()
-    def GET(self, device_id=None):
+    def GET(self, device_id=None, **query):
         if device_id:
             device = self.service.state.get_latest_data(device_id)
             if not device:
-                cherrypy.response.status = 404
-                return {"error": f"Device '{device_id}' not found"}
+                # Professor's way to handle errors
+                raise cherrypy.HTTPError(404, f"Device '{device_id}' not found")
             return device
 
         devices = self.service.state.get_all_latest_data()
@@ -390,7 +291,7 @@ class DevicesAPI:
         }
 
 
-class AlertsAPI:
+class AlertsAPI(object):
     exposed = True
 
     def __init__(self, service: AlertGeneratorService) -> None:
@@ -405,17 +306,16 @@ class AlertsAPI:
         }
 
 
-class ReportAPI:
+class ReportAPI(object):
     exposed = True
 
     def __init__(self, service: AlertGeneratorService) -> None:
         self.service = service
 
     @cherrypy.tools.json_out()
-    def GET(self, device_id=None, results=None):
+    def GET(self, device_id=None, results=None, **query):
         if not device_id:
-            cherrypy.response.status = 400
-            return {"error": "device_id is required"}
+            raise cherrypy.HTTPError(400, "device_id is required")
 
         try:
             report = self.service.generate_report(
@@ -425,17 +325,13 @@ class ReportAPI:
             return report
 
         except ValueError as e:
-            cherrypy.response.status = 404
-            return {"error": str(e)}
+            raise cherrypy.HTTPError(404, str(e))
 
         except requests.RequestException as e:
-            cherrypy.response.status = 500
-            return {"error": f"Failed to fetch history from ThingSpeak Adapter: {e}"}
+            raise cherrypy.HTTPError(500, f"Failed to fetch history from ThingSpeak Adapter: {e}")
 
         except Exception as e:
-            cherrypy.response.status = 500
-            return {"error": f"Report generation error: {e}"}
-
+            raise cherrypy.HTTPError(500, f"Report generation error: {e}")
 
 if __name__ == "__main__":
     service = AlertGeneratorService()
@@ -451,9 +347,12 @@ if __name__ == "__main__":
 
     conf = {
         "/": {
-            "request.dispatch": cherrypy.dispatch.MethodDispatcher()
+            "request.dispatch": cherrypy.dispatch.MethodDispatcher(),
+            "tools.sessions.on": True
         }
     }
+
+    cherrypy.tree.mount(app, "/", conf)
 
     cherrypy.config.update({
         "server.socket_host": service.runtime["service_host"],
@@ -461,4 +360,5 @@ if __name__ == "__main__":
         "log.screen": True
     })
 
-    cherrypy.quickstart(app, "/", conf)
+    cherrypy.engine.start()
+    cherrypy.engine.block()
