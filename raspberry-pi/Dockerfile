@@ -18,9 +18,11 @@ ENV CATALOG_URL=http://catalogue:8000
 ENV PUBLISH_INTERVAL=10
 ENV REGISTER_INTERVAL=60
 
-COPY requirements.txt .
+COPY raspberry-pi/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY main.py .
+COPY shared/ /app/shared/
+COPY raspberry-pi/main.py .
+COPY raspberry-pi/simulator.py .
 
 CMD ["python", "main.py"]

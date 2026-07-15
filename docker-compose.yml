@@ -127,7 +127,9 @@ services:
     restart: unless-stopped
   
   raspi-01:
-    build: ./raspberry-pi
+    build:
+      context: .
+      dockerfile: raspberry-pi/Dockerfile
     container_name: raspi-01
     env_file:
       - .env
@@ -148,7 +150,9 @@ services:
     restart: unless-stopped
 
   raspi-02:
-    build: ./raspberry-pi
+    build:
+      context: .
+      dockerfile: raspberry-pi/Dockerfile
     container_name: raspi-02
     env_file:
       - .env
@@ -169,7 +173,9 @@ services:
     restart: unless-stopped
 
   raspi-03:
-    build: ./raspberry-pi
+    build:
+      context: .
+      dockerfile: raspberry-pi/Dockerfile
     container_name: raspi-03
     env_file:
       - .env
@@ -190,7 +196,9 @@ services:
     restart: unless-stopped
 
   raspi-04:
-    build: ./raspberry-pi
+    build:
+      context: .
+      dockerfile: raspberry-pi/Dockerfile
     container_name: raspi-04
     env_file:
       - .env
