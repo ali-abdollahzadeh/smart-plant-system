@@ -6,192 +6,460 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import cherrypy
+import paho.mqtt.client as mqtt
 import requests
-from shared.MyMQTT import MyMQTT
-from rule_engine import AlertRuleEngine
 
+class AlertRuleEngine:
+    """Generate alerts when sensor values are outside configured limits."""
 
-class AppConfig:
-    @staticmethod
-    def now_utc_iso() -> str:
-        return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    def __init__(self, thresholds):
+        self.thresholds = thresholds
 
-    @staticmethod
-    def load_json(path: str) -> Dict[str, Any]:
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-
-    @staticmethod
-    def load_runtime_config() -> Dict[str, Any]:
-        return {
-            "service_id": os.environ.get("SERVICE_ID", "alert-generator"),
-            "service_name": os.environ.get("SERVICE_NAME", "Alert Generator"),
-            "service_type": os.environ.get("SERVICE_TYPE", "alert_generator"),
-            "service_host": os.environ.get("SERVICE_HOST", "0.0.0.0"),
-            "service_port": int(os.environ.get("SERVICE_PORT", 8091)),
-            "catalog_url": os.environ.get("CATALOG_URL", "http://catalogue:8000"),
-            "register_interval": int(os.environ.get("REGISTER_INTERVAL", 60)),
-            "mqtt_broker": os.environ.get("MQTT_BROKER", "mosquitto"),
-            "mqtt_port": int(os.environ.get("MQTT_PORT", 1883)),
-            "thingspeak_adapter_url": os.environ.get("THINGSPEAK_ADAPTER_URL", "http://thingspeak-adapter:8080"),
-            "config_file": os.environ.get("CONFIG_FILE", "/app/config.json"),
-        }
-
-
-class SharedState:
-    def __init__(self) -> None:
-        self.lock = threading.Lock()
-        self.latest_data: Dict[str, Dict[str, Any]] = {}
-        self.alerts: List[Dict[str, Any]] = []
-        self.last_registration_time: float = 0.0
-
-    def set_latest_data(self, device_id: str, sensor_data: Dict[str, Any]) -> None:
-        with self.lock:
-            self.latest_data[device_id] = sensor_data
-
-    def get_latest_data(self, device_id: str) -> Optional[Dict[str, Any]]:
-        with self.lock:
-            return self.latest_data.get(device_id)
-
-    def get_all_latest_data(self) -> Dict[str, Dict[str, Any]]:
-        with self.lock:
-            return dict(self.latest_data)
-
-    def add_alert(self, alert: Dict[str, Any]) -> None:
-        with self.lock:
-            self.alerts.append(alert)
-            if len(self.alerts) > 200:
-                self.alerts = self.alerts[-200:]
-
-    def get_alerts(self) -> List[Dict[str, Any]]:
-        with self.lock:
-            return list(self.alerts)
-
-    def set_last_registration_time(self, timestamp: float) -> None:
-        with self.lock:
-            self.last_registration_time = timestamp
-
-
-class AlertGeneratorService:
-    def __init__(self) -> None:
-        self.runtime = AppConfig.load_runtime_config()
-        self.config = AppConfig.load_json(self.runtime["config_file"])
-        self.state = SharedState()
-        self.rule_engine = AlertRuleEngine(self.config["thresholds"])
-
-        self.mqtt_client = MyMQTT(
-            clientID=self.runtime["service_id"],
-            broker=self.runtime["mqtt_broker"],
-            port=self.runtime["mqtt_port"],
-            notifier=self
+    def now_utc_iso(self):
+        return (
+            datetime.now(timezone.utc)
+            .replace(microsecond=0)
+            .isoformat()
         )
 
+    def create_alert(
+        self,
+        device_id,
+        alert_type,
+        value,
+        threshold
+    ):
+        return {
+            "device_id": device_id,
+            "alert": alert_type,
+            "value": value,
+            "threshold": threshold,
+            "timestamp": self.now_utc_iso()
+        }
+
+    def check_sensor(
+        self,
+        sensor_data,
+        sensor_type
+    ):
+        device_id = sensor_data.get("device_id")
+        value = sensor_data.get(sensor_type)
+        limits = self.thresholds.get(sensor_type, {})
+
+        if value is None:
+            return []
+
+        try:
+            numeric_value = float(value)
+            minimum = float(limits["min"])
+            maximum = float(limits["max"])
+        except (TypeError, ValueError, KeyError):
+            print(
+                f"[RULES] Invalid configuration or value "
+                f"for {sensor_type}: {value}"
+            )
+            return []
+
+        if numeric_value < minimum:
+            return [
+                self.create_alert(
+                    device_id=device_id,
+                    alert_type=f"{sensor_type}_low",
+                    value=numeric_value,
+                    threshold=minimum
+                )
+            ]
+
+        if numeric_value > maximum:
+            return [
+                self.create_alert(
+                    device_id=device_id,
+                    alert_type=f"{sensor_type}_high",
+                    value=numeric_value,
+                    threshold=maximum
+                )
+            ]
+
+        return []
+
+    def generate_alerts(self, sensor_data):
+        alerts = []
+
+        for sensor_type in (
+            "temperature",
+            "soil_moisture",
+            "humidity"
+        ):
+            alerts.extend(
+                self.check_sensor(
+                    sensor_data,
+                    sensor_type
+                )
+            )
+
+        return alerts
+
+
+class AlertGeneratorService(object):
+    exposed = True
+
+    def __init__(self):
+        # --------------------------------------------------
+        # Runtime configuration
+        # --------------------------------------------------
+        self.service_id = os.environ.get(
+            "SERVICE_ID",
+            "alert-generator"
+        )
+        self.service_name = os.environ.get(
+            "SERVICE_NAME",
+            "Alert Generator"
+        )
+        self.service_type = os.environ.get(
+            "SERVICE_TYPE",
+            "alert_generator"
+        )
+        self.service_host = os.environ.get(
+            "SERVICE_HOST",
+            "0.0.0.0"
+        )
+        self.service_port = int(
+            os.environ.get("SERVICE_PORT", 8091)
+        )
+        self.catalog_url = os.environ.get(
+            "CATALOG_URL",
+            "http://catalogue:8000"
+        )
+        self.registration_retry_delay = int(
+            os.environ.get("REGISTRATION_RETRY_DELAY", 5)
+        )
+
+        self.mqtt_broker = os.environ.get(
+            "MQTT_BROKER",
+            "mosquitto"
+        )
+        self.mqtt_port = int(
+            os.environ.get("MQTT_PORT", 1883)
+        )
+
+        self.thingspeak_adapter_url = os.environ.get(
+            "THINGSPEAK_ADAPTER_URL",
+            "http://thingspeak-adapter:8080"
+        )
+        self.config_file = os.environ.get(
+            "CONFIG_FILE",
+            "/app/config.json"
+        )
+
+        # --------------------------------------------------
+        # Load configuration
+        # --------------------------------------------------
+        with open(self.config_file, "r", encoding="utf-8") as file:
+            self.config = json.load(file)
+
+        # --------------------------------------------------
+        # Shared service state
+        # --------------------------------------------------
+        self.lock = threading.RLock()
+        self.latest_data: Dict[str, Dict[str, Any]] = {}
+        self.alerts: List[Dict[str, Any]] = []
+
+        # Rule engine remains a separate application module.
+        self.rule_engine = AlertRuleEngine(
+            self.config["thresholds"]
+        )
+
+        # --------------------------------------------------
+        # MQTT client
+        # --------------------------------------------------
+        self.mqtt_connected = False
+
+        self.mqtt_client = mqtt.Client(
+            client_id=self.service_id,
+            clean_session=True
+        )
+
+        self.mqtt_client.on_connect = self.on_mqtt_connect
+        self.mqtt_client.on_disconnect = self.on_mqtt_disconnect
+        self.mqtt_client.on_message = self.on_mqtt_message
+
     # --------------------------------------------------
-    # Config helpers
+    # General helpers
     # --------------------------------------------------
-    def sensor_topic(self) -> str:
+    def now_utc_iso(self):
+        return (
+            datetime.now(timezone.utc)
+            .replace(microsecond=0)
+            .isoformat()
+        )
+
+    def sensor_topic(self):
         return self.config["mqtt"]["sensor_topic"]
 
-    def alert_topic_base(self) -> str:
+    def alert_topic_base(self):
         return self.config["mqtt"]["alert_topic_base"]
 
-    def thresholds(self) -> Dict[str, Any]:
-        return self.config["thresholds"]
+    def alert_topic(self, device_id):
+        return f"{self.alert_topic_base()}/{device_id}"
 
-    def default_report_results(self) -> int:
+    def default_report_results(self):
         return self.config["report"]["default_results"]
 
     # --------------------------------------------------
     # Catalogue registration
     # --------------------------------------------------
-    def register_service(self) -> None:
-        payload = {
-            "id": self.runtime["service_id"],
-            "name": self.runtime["service_name"],
-            "type": self.runtime["service_type"],
-            "endpoint": f"http://{self.runtime['service_id']}:{self.runtime['service_port']}",
+    def registration_payload(self):
+        return {
+            "id": self.service_id,
+            "name": self.service_name,
+            "type": self.service_type,
+            "endpoint": (
+                f"http://{self.service_id}:{self.service_port}"
+            ),
             "status": "active"
         }
 
+    def register_service(self):
+        payload = self.registration_payload()
+
         try:
             response = requests.post(
-                f"{self.runtime['catalog_url']}/services",
+                f"{self.catalog_url}/services",
                 json=payload,
                 timeout=5
             )
 
             if response.status_code in (200, 201):
-                self.state.set_last_registration_time(time.time())
-                print(f"[CATALOGUE] Service registered: {payload}")
-            else:
-                print(f"[CATALOGUE] Registration failed: {response.status_code} {response.text}")
+                try:
+                    result = response.json()
+                    action = result.get("action")
+                except ValueError:
+                    action = None
 
-        except requests.RequestException as e:
-            print(f"[CATALOGUE] Registration error: {e}")
+                if action == "updated":
+                    print(
+                        "[CATALOGUE] Service already registered; "
+                        "information refreshed"
+                    )
+                else:
+                    print(
+                        f"[CATALOGUE] Service registered: {payload}"
+                    )
 
-    def registration_loop(self) -> None:
-        while True:
-            self.register_service()
-            time.sleep(self.runtime["register_interval"])
+                return True
+
+            print(
+                "[CATALOGUE] Registration failed: "
+                f"{response.status_code} {response.text}"
+            )
+
+        except requests.RequestException as error:
+            print(f"[CATALOGUE] Registration error: {error}")
+
+        return False
+
+    def registration_startup_task(self):
+        # Retry only until registration succeeds.
+        while not self.register_service():
+            print(
+                "[CATALOGUE] Retrying registration in "
+                f"{self.registration_retry_delay} seconds..."
+            )
+            time.sleep(self.registration_retry_delay)
 
     # --------------------------------------------------
-    # MQTT Actions & Callback
+    # MQTT callbacks
     # --------------------------------------------------
-    def notify(self, topic: str, payload: str) -> None:
+    def on_mqtt_connect(
+        self,
+        client,
+        userdata,
+        flags,
+        rc
+    ):
+        if rc == 0:
+            self.mqtt_connected = True
+
+            client.subscribe(
+                self.sensor_topic(),
+                qos=2
+            )
+
+            print(
+                f"[MQTT] Connected to "
+                f"{self.mqtt_broker}:{self.mqtt_port}"
+            )
+            print(
+                f"[MQTT] Subscribed to "
+                f"{self.sensor_topic()}"
+            )
+
+        else:
+            self.mqtt_connected = False
+            print(
+                f"[MQTT] Connection failed with rc={rc}"
+            )
+
+    def on_mqtt_disconnect(
+        self,
+        client,
+        userdata,
+        rc
+    ):
+        self.mqtt_connected = False
+        print(f"[MQTT] Disconnected with rc={rc}")
+
+    def on_mqtt_message(
+        self,
+        client,
+        userdata,
+        message
+    ):
         try:
+            payload = message.payload.decode("utf-8")
             sensor_data = json.loads(payload)
-            sensor_data["_mqtt_topic"] = topic
-            sensor_data["_received_at"] = AppConfig.now_utc_iso()
+
+            sensor_data["_mqtt_topic"] = message.topic
+            sensor_data["_received_at"] = self.now_utc_iso()
 
             device_id = sensor_data.get("device_id")
+
             if not device_id:
                 print("[MQTT] Missing device_id in payload")
                 return
 
-               # Cache the latest sensor update
-            self.state.set_latest_data(device_id, sensor_data)
-            print(f"[MQTT] Received from {topic}: {sensor_data}")
+            with self.lock:
+                self.latest_data[device_id] = sensor_data
 
-            # Analyze thresholds
-            alerts = self.rule_engine.generate_alerts(sensor_data)
-            for alert in alerts:
+            print(
+                f"[MQTT] Received from {message.topic}: "
+                f"{sensor_data}"
+            )
+
+            generated_alerts = (
+                self.rule_engine.generate_alerts(sensor_data)
+            )
+
+            for alert in generated_alerts:
                 self.publish_alert(alert)
 
         except json.JSONDecodeError:
             print("[MQTT] Invalid JSON payload received")
-        except Exception as e:
-            print(f"[MQTT] Processing error: {e}")
 
-    def publish_alert(self, alert: Dict[str, Any]) -> None:
-        topic = f"{self.alert_topic_base()}/{alert['device_id']}"
+        except Exception as error:
+            print(f"[MQTT] Processing error: {error}")
+
+    def mqtt_loop(self):
+        while True:
+            try:
+                self.mqtt_client.connect(
+                    self.mqtt_broker,
+                    self.mqtt_port,
+                    keepalive=60
+                )
+
+                self.mqtt_client.loop_forever()
+
+            except Exception as error:
+                self.mqtt_connected = False
+                print(f"[MQTT] Connection error: {error}")
+                time.sleep(5)
+
+    # --------------------------------------------------
+    # Alert storage and publication
+    # --------------------------------------------------
+    def add_alert(self, alert):
+        with self.lock:
+            self.alerts.append(alert)
+
+            if len(self.alerts) > 200:
+                self.alerts = self.alerts[-200:]
+
+    def publish_alert(self, alert):
+        device_id = alert.get("device_id")
+
+        if not device_id:
+            print("[MQTT] Alert missing device_id")
+            return
+
+        if not self.mqtt_connected:
+            print(
+                "[MQTT] Cannot publish alert because "
+                "MQTT is not connected"
+            )
+            return
+
+        topic = self.alert_topic(device_id)
+
         try:
-            self.mqtt_client.myPublish(topic, alert)
-            self.state.add_alert(alert)
-            print(f"[MQTT] Published alert to {topic}: {alert}")
-        except Exception as e:
-            print(f"[MQTT] Publish alert error: {e}")
+            information = self.mqtt_client.publish(
+                topic,
+                json.dumps(alert),
+                qos=2
+            )
+
+            information.wait_for_publish()
+
+            if information.rc == mqtt.MQTT_ERR_SUCCESS:
+                self.add_alert(alert)
+                print(
+                    f"[MQTT] Published alert to {topic}: "
+                    f"{alert}"
+                )
+            else:
+                print(
+                    f"[MQTT] Alert publish failed with "
+                    f"rc={information.rc}"
+                )
+
+        except Exception as error:
+            print(f"[MQTT] Publish alert error: {error}")
 
     # --------------------------------------------------
     # Report generation
     # --------------------------------------------------
-    def get_history(self, device_id: str, results: int) -> Dict[str, Any]:
+    def get_history(self, device_id, results):
         response = requests.get(
-            f"{self.runtime['thingspeak_adapter_url']}/history",
-            params={"device_id": device_id, "results": results},
+            f"{self.thingspeak_adapter_url}/history",
+            params={
+                "device_id": device_id,
+                "results": results
+            },
             timeout=10
         )
+
         response.raise_for_status()
         return response.json()
 
-    def generate_report(self, device_id: str, results: Optional[int] = None) -> Dict[str, Any]:
+    def average(self, values):
+        if not values:
+            return 0.0
+
+        return round(sum(values) / len(values), 2)
+
+    def generate_report(
+        self,
+        device_id,
+        results=None
+    ):
         if results is None:
             results = self.default_report_results()
 
-        latest_data = self.state.get_latest_data(device_id)
-        if latest_data is None:
-            raise ValueError(f"Device '{device_id}' not found in local state")
+        with self.lock:
+            latest_data = self.latest_data.get(device_id)
 
-        history_data = self.get_history(device_id, results)
+            if latest_data is not None:
+                latest_data = dict(latest_data)
+
+        if latest_data is None:
+            raise ValueError(
+                f"Device '{device_id}' not found in local state"
+            )
+
+        history_data = self.get_history(
+            device_id,
+            results
+        )
         feeds = history_data.get("feeds", [])
 
         temperatures = []
@@ -200,165 +468,248 @@ class AlertGeneratorService:
 
         for feed in feeds:
             if feed.get("field1") not in (None, ""):
-                temperatures.append(float(feed["field1"]))
-            if feed.get("field2") not in (None, ""):
-                soil_moistures.append(float(feed["field2"]))
-            if feed.get("field3") not in (None, ""):
-                humidities.append(float(feed["field3"]))
+                temperatures.append(
+                    float(feed["field1"])
+                )
 
-        def average(values: List[float]) -> float:
-            return round(sum(values) / len(values), 2) if values else 0.0
+            if feed.get("field2") not in (None, ""):
+                soil_moistures.append(
+                    float(feed["field2"])
+                )
+
+            if feed.get("field3") not in (None, ""):
+                humidities.append(
+                    float(feed["field3"])
+                )
 
         return {
             "device_id": device_id,
             "latest_data": latest_data,
             "history_count": len(feeds),
             "averages": {
-                "temperature": average(temperatures),
-                "soil_moisture": average(soil_moistures),
-                "humidity": average(humidities)
+                "temperature": (
+                    self.average(temperatures)
+                ),
+                "soil_moisture": (
+                    self.average(soil_moistures)
+                ),
+                "humidity": (
+                    self.average(humidities)
+                )
             },
             "message": "Report generated successfully"
         }
 
     # --------------------------------------------------
-    # Background tasks
+    # REST API
     # --------------------------------------------------
-    def start_background_threads(self) -> None:
-        self.mqtt_client.start()
-        self.mqtt_client.mySubscribe(self.sensor_topic())
-        threading.Thread(target=self.registration_loop, daemon=True).start()
-
-
-class RootAPI(object):
-    exposed = True
-
-    def __init__(self, service: AlertGeneratorService) -> None:
-        self.service = service
-        self.health = HealthAPI(service)
-        self.devices = DevicesAPI(service)
-        self.alerts = AlertsAPI(service)
-        self.report = ReportAPI(service)
-
     @cherrypy.tools.json_out()
     def GET(self, *path, **query):
-        return {
-            "message": "Alert Generator is running",
-            "endpoints": {
-                "health": "/health",
-                "devices": "/devices",
-                "device_by_id": "/devices/<device_id>",
-                "alerts": "/alerts",
-                "report": "/report?device_id=raspi-01"
+        # GET /
+        if len(path) == 0:
+            return {
+                "message": "Alert Generator is running",
+                "endpoints": {
+                    "health": "/health",
+                    "devices": "/devices",
+                    "device_by_id": (
+                        "/devices/<device_id>"
+                    ),
+                    "alerts": "/alerts",
+                    "report": (
+                        "/report?device_id=raspi-01"
+                    )
+                }
             }
-        }
 
+        resource = path[0]
 
-class HealthAPI(object):
-    exposed = True
+        # GET /health
+        if resource == "health":
+            if len(path) != 1:
+                raise cherrypy.HTTPError(
+                    404,
+                    "Invalid health path"
+                )
 
-    def __init__(self, service: AlertGeneratorService) -> None:
-        self.service = service
+            return {
+                "status": "ok",
+                "timestamp": self.now_utc_iso(),
+                "service_id": self.service_id,
+                "mqtt_connected": self.mqtt_connected
+            }
 
-    @cherrypy.tools.json_out()
-    def GET(self, *path, **query):
-        return {
-            "status": "ok",
-            "timestamp": AppConfig.now_utc_iso(),
-            "service_id": self.service.runtime["service_id"]
-        }
+        # GET /devices
+        # GET /devices/<device_id>
+        if resource == "devices":
+            if len(path) > 2:
+                raise cherrypy.HTTPError(
+                    404,
+                    "Invalid devices path"
+                )
 
+            with self.lock:
+                if len(path) == 2:
+                    device_id = path[1]
+                    device = self.latest_data.get(device_id)
 
-class DevicesAPI(object):
-    exposed = True
+                    if device is None:
+                        raise cherrypy.HTTPError(
+                            404,
+                            f"Device '{device_id}' not found"
+                        )
 
-    def __init__(self, service: AlertGeneratorService) -> None:
-        self.service = service
+                    return dict(device)
 
-    @cherrypy.tools.json_out()
-    def GET(self, device_id=None, **query):
-        if device_id:
-            device = self.service.state.get_latest_data(device_id)
-            if not device:
-                # Professor's way to handle errors
-                raise cherrypy.HTTPError(404, f"Device '{device_id}' not found")
-            return device
+                devices = dict(self.latest_data)
 
-        devices = self.service.state.get_all_latest_data()
-        return {
-            "count": len(devices),
-            "devices": devices
-        }
+            return {
+                "count": len(devices),
+                "devices": devices
+            }
 
+        # GET /alerts
+        if resource == "alerts":
+            if len(path) != 1:
+                raise cherrypy.HTTPError(
+                    404,
+                    "Invalid alerts path"
+                )
 
-class AlertsAPI(object):
-    exposed = True
+            with self.lock:
+                alerts = list(self.alerts)
 
-    def __init__(self, service: AlertGeneratorService) -> None:
-        self.service = service
+            return {
+                "count": len(alerts),
+                "alerts": alerts
+            }
 
-    @cherrypy.tools.json_out()
-    def GET(self):
-        alerts = self.service.state.get_alerts()
-        return {
-            "count": len(alerts),
-            "alerts": alerts
-        }
+        # GET /report?device_id=raspi-01&results=20
+        if resource == "report":
+            if len(path) != 1:
+                raise cherrypy.HTTPError(
+                    404,
+                    "Invalid report path"
+                )
 
+            device_id = query.get("device_id")
+            results = query.get("results")
 
-class ReportAPI(object):
-    exposed = True
+            if not device_id:
+                raise cherrypy.HTTPError(
+                    400,
+                    "device_id is required"
+                )
 
-    def __init__(self, service: AlertGeneratorService) -> None:
-        self.service = service
+            try:
+                if results is not None:
+                    results = int(results)
 
-    @cherrypy.tools.json_out()
-    def GET(self, device_id=None, results=None, **query):
-        if not device_id:
-            raise cherrypy.HTTPError(400, "device_id is required")
+                    if results <= 0:
+                        raise ValueError(
+                            "results must be greater than zero"
+                        )
 
+                return self.generate_report(
+                    device_id=device_id,
+                    results=results
+                )
+
+            except ValueError as error:
+                message = str(error)
+
+                if "not found" in message:
+                    raise cherrypy.HTTPError(
+                        404,
+                        message
+                    )
+
+                raise cherrypy.HTTPError(
+                    400,
+                    message
+                )
+
+            except requests.RequestException as error:
+                raise cherrypy.HTTPError(
+                    500,
+                    "Failed to fetch history from "
+                    f"ThingSpeak Adapter: {error}"
+                )
+
+            except Exception as error:
+                raise cherrypy.HTTPError(
+                    500,
+                    f"Report generation error: {error}"
+                )
+
+        raise cherrypy.HTTPError(
+            404,
+            "Endpoint not found"
+        )
+
+    # --------------------------------------------------
+    # Service lifecycle
+    # --------------------------------------------------
+    def start(self):
+        threading.Thread(
+            target=self.registration_startup_task,
+            daemon=True,
+            name="catalogue-registration-thread"
+        ).start()
+
+        threading.Thread(
+            target=self.mqtt_loop,
+            daemon=True,
+            name="mqtt-thread"
+        ).start()
+
+    def stop(self):
         try:
-            report = self.service.generate_report(
-                device_id=device_id,
-                results=int(results) if results else None
-            )
-            return report
+            self.mqtt_client.disconnect()
+        except Exception:
+            pass
 
-        except ValueError as e:
-            raise cherrypy.HTTPError(404, str(e))
-
-        except requests.RequestException as e:
-            raise cherrypy.HTTPError(500, f"Failed to fetch history from ThingSpeak Adapter: {e}")
-
-        except Exception as e:
-            raise cherrypy.HTTPError(500, f"Report generation error: {e}")
 
 if __name__ == "__main__":
     service = AlertGeneratorService()
 
     print("[START] Alert Generator starting...")
-    print(f"[INFO] Service ID: {service.runtime['service_id']}")
-    print(f"[INFO] MQTT Broker: {service.runtime['mqtt_broker']}:{service.runtime['mqtt_port']}")
-    print(f"[INFO] Sensor Topic: {service.config['mqtt']['sensor_topic']}")
+    print(f"[INFO] Service ID: {service.service_id}")
+    print(
+        f"[INFO] MQTT Broker: "
+        f"{service.mqtt_broker}:{service.mqtt_port}"
+    )
+    print(
+        f"[INFO] Sensor Topic: "
+        f"{service.sensor_topic()}"
+    )
 
-    service.start_background_threads()
+    service.start()
 
-    app = RootAPI(service)
-
-    conf = {
+    configuration = {
         "/": {
-            "request.dispatch": cherrypy.dispatch.MethodDispatcher(),
+            "request.dispatch":
+                cherrypy.dispatch.MethodDispatcher(),
             "tools.sessions.on": True
         }
     }
 
-    cherrypy.tree.mount(app, "/", conf)
+    cherrypy.tree.mount(
+        service,
+        "/",
+        configuration
+    )
 
     cherrypy.config.update({
-        "server.socket_host": service.runtime["service_host"],
-        "server.socket_port": service.runtime["service_port"],
+        "server.socket_host": service.service_host,
+        "server.socket_port": service.service_port,
         "log.screen": True
     })
+
+    cherrypy.engine.subscribe(
+        "stop",
+        service.stop
+    )
 
     cherrypy.engine.start()
     cherrypy.engine.block()

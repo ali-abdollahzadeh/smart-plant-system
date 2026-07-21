@@ -45,7 +45,7 @@ class TelegramPlantBot:
             "service_id": os.environ.get("SERVICE_ID", "telegram-bot"),
             "service_name": os.environ.get("SERVICE_NAME", "Telegram Bot"),
             "service_type": os.environ.get("SERVICE_TYPE", "telegram_bot"),
-            "register_interval": int(os.environ.get("REGISTER_INTERVAL", 60)),
+            "registration_retry_delay": int(os.environ.get("REGISTRATION_RETRY_DELAY", 5)),
             "config_file": os.environ.get("CONFIG_FILE", "/app/config.json"),
             "mqtt_broker": os.environ.get("MQTT_BROKER", "mosquitto"),
             "mqtt_port": int(os.environ.get("MQTT_PORT", 1883)),
@@ -143,7 +143,11 @@ class TelegramPlantBot:
     # --------------------------------------------------
     # Catalogue service registration
     # --------------------------------------------------
-    def register_service(self) -> None:
+    def register_service(self) -> bool:
+        """Register the Telegram bot once in the catalogue.
+
+        Returns True when the catalogue accepts the registration.
+        """
         payload = {
             "id": self.runtime["service_id"],
             "name": self.runtime["service_name"],
@@ -160,17 +164,42 @@ class TelegramPlantBot:
             )
 
             if response.status_code in (200, 201):
-                print(f"[CATALOGUE] Service registered: {payload}")
-            else:
-                print(f"[CATALOGUE] Registration failed: {response.status_code} {response.text}")
+                try:
+                    result = response.json()
+                    action = result.get("action")
+                except ValueError:
+                    action = None
 
-        except requests.RequestException as e:
-            print(f"[CATALOGUE] Registration error: {e}")
+                if action == "updated":
+                    print(
+                        "[CATALOGUE] Service already registered; "
+                        "information refreshed"
+                    )
+                else:
+                    print(f"[CATALOGUE] Service registered: {payload}")
 
-    def registration_loop(self) -> None:
-        while True:
-            self.register_service()
-            time.sleep(self.runtime["register_interval"])
+                return True
+
+            print(
+                "[CATALOGUE] Registration failed: "
+                f"{response.status_code} {response.text}"
+            )
+
+        except requests.RequestException as error:
+            print(f"[CATALOGUE] Registration error: {error}")
+
+        return False
+
+    def registration_startup_task(self) -> None:
+        """Retry registration only until it succeeds, then stop."""
+        retry_delay = self.runtime["registration_retry_delay"]
+
+        while not self.register_service():
+            print(
+                f"[CATALOGUE] Retrying registration in "
+                f"{retry_delay} seconds..."
+            )
+            time.sleep(retry_delay)
 
     # --------------------------------------------------
     # Devices
@@ -745,8 +774,17 @@ class TelegramPlantBot:
         print("[START] Telegram Bot starting...")
         print("[INFO] Authorization source: Catalogue /users")
 
-        threading.Thread(target=self.registration_loop, daemon=True).start()
-        threading.Thread(target=self.mqtt_loop, daemon=True).start()
+        threading.Thread(
+            target=self.registration_startup_task,
+            daemon=True,
+            name="catalogue-registration-thread"
+        ).start()
+
+        threading.Thread(
+            target=self.mqtt_loop,
+            daemon=True,
+            name="mqtt-thread"
+        ).start()
 
         self.bot.infinity_polling(timeout=30, long_polling_timeout=20)
 

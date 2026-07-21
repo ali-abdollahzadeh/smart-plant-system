@@ -21,7 +21,6 @@ ENV REGISTER_INTERVAL=60
 COPY raspberry-pi/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY shared/ /app/shared/
 COPY raspberry-pi/main.py .
 COPY raspberry-pi/simulator.py .
 

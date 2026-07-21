@@ -23,7 +23,6 @@ ENV CONFIG_FILE=/app/config.json
 COPY alert_generator/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY shared/ /app/shared/
 COPY alert_generator/main.py .
 COPY alert_generator/config.json .
 COPY alert_generator/rule_engine.py .

@@ -3,575 +3,614 @@ import json
 import os
 import threading
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
 
 
-class CatalogueConfig:
-    def __init__(self) -> None:
-        
-        self.catalog_file = os.environ.get("CATALOG_FILE", "catalog.json")
-        self.host = os.environ.get("CATALOG_HOST", "0.0.0.0")
-        self.port = int(os.environ.get("CATALOG_PORT", 8000))
+class CatalogueWebService:
+    exposed = True
 
-        self.default_catalog = {
-            "users": [],
-            "devices": [],
-            "services": [],
-            "config": {
-                "project_name": "Smart Plant Care System",
-                "mqtt_broker": "mosquitto",
-                "mqtt_port": 1883,
-                "sampling_interval": 60,
-                "moisture_threshold": 30,
-                "temperature_threshold": 35,
-                "humidity_threshold": 70
+    def __init__(self, catalogue_file):
+        self.catalogue_file = catalogue_file
+        self.lock = threading.RLock()
+        self.create_catalogue_file()
+
+    # --------------------------------------------------
+    # File management
+    # --------------------------------------------------
+    def create_catalogue_file(self):
+        """Create the catalogue file only when it does not exist."""
+        if not os.path.exists(self.catalogue_file):
+            default_catalogue = {
+                "users": [],
+                "devices": [],
+                "services": [],
+                "config": {
+                    "project_name": "Smart Plant Care System",
+                    "mqtt_broker": "mosquitto",
+                    "mqtt_port": 1883,
+                    "sampling_interval": 60,
+                    "moisture_threshold": 30,
+                    "temperature_threshold": 35,
+                    "humidity_threshold": 70
+                }
             }
-        }
 
-    @staticmethod
-    def now_utc_iso() -> str:
+            file = open(self.catalogue_file, "w", encoding="utf-8")
+            json.dump(default_catalogue, file, indent=4)
+            file.close()
+
+    def load_catalogue(self):
+        """Read and return the complete catalogue."""
+        try:
+            file = open(self.catalogue_file, "r", encoding="utf-8")
+            catalogue = json.load(file)
+            file.close()
+            return catalogue
+        except (OSError, json.JSONDecodeError):
+            return None
+
+    def save_catalogue(self, catalogue):
+        """Write the complete catalogue to the JSON file."""
+        file = open(self.catalogue_file, "w", encoding="utf-8")
+        json.dump(catalogue, file, indent=4)
+        file.close()
+
+    # --------------------------------------------------
+    # Helper methods
+    # --------------------------------------------------
+    def current_time(self):
         return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
+    def error_response(self, status, message):
+        cherrypy.response.status = status
+        return {"error": message}
 
-class CatalogueStorage:
-    def __init__(self, config: CatalogueConfig) -> None:
-        self.config = config
-        self.lock = threading.RLock()
-
-    def ensure_catalog_file(self) -> None:
-        if not os.path.exists(self.config.catalog_file):
-            with open(self.config.catalog_file, "w", encoding="utf-8") as f:
-                json.dump(self.config.default_catalog, f, indent=4)
-
-    def load_catalog(self) -> Dict[str, Any]:
-        with self.lock:
-            self.ensure_catalog_file()
-            try:
-                with open(self.config.catalog_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-            except (json.JSONDecodeError, OSError):
-                data = {
-                    "devices": list(self.config.default_catalog["devices"]),
-                    "services": list(self.config.default_catalog["services"]),
-                    "config": dict(self.config.default_catalog["config"])
-                }
-                self.save_catalog(data)
-
-            data.setdefault("devices", [])
-            data.setdefault("users", [])
-            data.setdefault("services", [])
-            data.setdefault("config", {})
-            return data
-    def validate_user(self, user: Dict[str, Any]) -> Optional[str]:
-         required = ["id", "name", "telegram_id", "devices"]
-         for field in required:
-            if field not in user:
-                return f"Missing required field: {field}"
-
-         if not isinstance(user["devices"], list):
-            return "devices must be a list"
-   
-         return None
-    def save_catalog(self, data: Dict[str, Any]) -> None:
-        with self.lock:
-            temp_file = f"{self.config.catalog_file}.tmp"
-            with open(temp_file, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=4)
-            os.replace(temp_file, self.config.catalog_file)
-
-
-class CatalogueService:
-    def __init__(self) -> None:
-        self.config = CatalogueConfig()
-        self.storage = CatalogueStorage(self.config)
-
-    # --------------------------------------------------
-    # Helpers
-    # --------------------------------------------------
-    def get_users(self, user_id: Optional[str] = None) -> Dict[str, Any]:
-        data = self.storage.load_catalog()
-
-        if user_id:
-            user = self.find_by_id(data["users"], user_id)
-            if not user:
-               return self.error_response(404, f"User '{user_id}' not found")
-            return user
-
-        return {
-                "count": len(data["users"]),
-                "users": data["users"]
-        }
-
-
-    def get_user_by_telegram_id(self, telegram_id: int) -> Optional[Dict[str, Any]]:
-        data = self.storage.load_catalog()
-        for user in data["users"]:
-            if int(user.get("telegram_id", -1)) == int(telegram_id):
-               return user
-        return None
-
-
-    def create_or_update_user(self, user: Dict[str, Any]) -> Dict[str, Any]:
-        validation_error = self.validate_user(user)
-        if validation_error:
-            return self.error_response(400, validation_error)
-
-        data = self.storage.load_catalog()
-        existing = self.find_by_id(data["users"], user["id"])
-        created_at = existing.get("created_at") if existing else self.config.now_utc_iso()
-
-        user["created_at"] = created_at
-        user["last_update"] = self.config.now_utc_iso()
-        user["status"] = user.get("status", "active")
-
-        action = self.upsert_by_id(data["users"], user)
-        self.storage.save_catalog(data)
-
-        cherrypy.response.status = 201 if action == "created" else 200
-        return {
-              "message": f"User {action} successfully",
-              "user": user
-        }
-    def find_by_id(self, items: List[Dict[str, Any]], item_id: str) -> Optional[Dict[str, Any]]:
+    def find_by_id(self, items, item_id):
         for item in items:
             if item.get("id") == item_id:
                 return item
         return None
 
-    def upsert_by_id(self, items: List[Dict[str, Any]], new_item: Dict[str, Any]) -> str:
-        for i, item in enumerate(items):
-            if item.get("id") == new_item.get("id"):
-                items[i] = new_item
-                return "updated"
-        items.append(new_item)
-        return "created"
+    def find_position_by_id(self, items, item_id):
+        for position, item in enumerate(items):
+            if item.get("id") == item_id:
+                return position
+        return None
 
-    def error_response(self, status_code: int, message: str) -> Dict[str, Any]:
-        cherrypy.response.status = status_code
-        return {"error": message}
+    def validate_user(self, user):
+        required_fields = ["id", "telegram_id", "name", "devices"]
 
-    # --------------------------------------------------
-    # Validation
-    # --------------------------------------------------
-    def validate_device(self, device: Dict[str, Any]) -> Optional[str]:
-        required = ["id", "name", "type"]
-        for field in required:
-            if field not in device or not str(device[field]).strip():
+        for field in required_fields:
+            if field not in user:
                 return f"Missing required field: {field}"
 
-        if not device.get("endpoint") and not device.get("mqtt_topic"):
-            return "Device must include at least one of: endpoint, mqtt_topic"
+        if not isinstance(user["devices"], list):
+            return "devices must be a list"
 
         return None
 
-    def validate_service(self, service: Dict[str, Any]) -> Optional[str]:
-        required = ["id", "name", "type", "endpoint"]
-        for field in required:
-            if field not in service or not str(service[field]).strip():
+    def validate_device(self, device):
+        required_fields = [
+            "id",
+            "name",
+            "type",
+            "mqtt_topic",
+            "command_topic"
+        ]
+
+        for field in required_fields:
+            if field not in device or str(device[field]).strip() == "":
                 return f"Missing required field: {field}"
+
         return None
 
-    # --------------------------------------------------
-    # Devices
-    # --------------------------------------------------
-    def get_devices(self, device_id: Optional[str] = None) -> Dict[str, Any]:
-        data = self.storage.load_catalog()
+    def validate_service(self, service):
+        required_fields = ["id", "name", "type", "endpoint"]
 
-        if device_id:
-            device = self.find_by_id(data["devices"], device_id)
-            if not device:
-                return self.error_response(404, f"Device '{device_id}' not found")
-            return device
+        for field in required_fields:
+            if field not in service or str(service[field]).strip() == "":
+                return f"Missing required field: {field}"
 
-        return {
-            "count": len(data["devices"]),
-            "devices": data["devices"]
-        }
+        return None
 
-    def create_or_update_device(self, device: Dict[str, Any]) -> Dict[str, Any]:
-        validation_error = self.validate_device(device)
-        if validation_error:
-            return self.error_response(400, validation_error)
+    def check_catalogue(self):
+        catalogue = self.load_catalogue()
 
-        data = self.storage.load_catalog()
-        existing = self.find_by_id(data["devices"], device["id"])
-        created_at = existing.get("created_at") if existing else self.config.now_utc_iso()
+        if catalogue is None:
+            return None, self.error_response(
+                500,
+                "The catalogue file cannot be read"
+            )
 
-        device["created_at"] = created_at
-        device["last_update"] = self.config.now_utc_iso()
-        device["status"] = device.get("status", "active")
+        catalogue.setdefault("users", [])
+        catalogue.setdefault("devices", [])
+        catalogue.setdefault("services", [])
+        catalogue.setdefault("config", {})
 
-        action = self.upsert_by_id(data["devices"], device)
-        self.storage.save_catalog(data)
-
-        cherrypy.response.status = 201 if action == "created" else 200
-        return {
-            "message": f"Device {action} successfully",
-            "device": device
-        }
-
-    def update_device(self, device_id: Optional[str], updated_fields: Dict[str, Any]) -> Dict[str, Any]:
-        if not device_id:
-            return self.error_response(400, "Device ID is required in the URL")
-
-        data = self.storage.load_catalog()
-        device = self.find_by_id(data["devices"], device_id)
-
-        if not device:
-            return self.error_response(404, f"Device '{device_id}' not found")
-
-        merged = {**device, **updated_fields}
-        validation_error = self.validate_device(merged)
-        if validation_error:
-            return self.error_response(400, validation_error)
-
-        merged["id"] = device_id
-        merged["created_at"] = device.get("created_at", self.config.now_utc_iso())
-        merged["last_update"] = self.config.now_utc_iso()
-
-        self.upsert_by_id(data["devices"], merged)
-        self.storage.save_catalog(data)
-
-        return {
-            "message": "Device updated successfully",
-            "device": merged
-        }
-
-    def delete_device(self, device_id: Optional[str]) -> Dict[str, Any]:
-        if not device_id:
-            return self.error_response(400, "Device ID is required in the URL")
-
-        data = self.storage.load_catalog()
-        device = self.find_by_id(data["devices"], device_id)
-
-        if not device:
-            return self.error_response(404, f"Device '{device_id}' not found")
-
-        data["devices"] = [d for d in data["devices"] if d.get("id") != device_id]
-        self.storage.save_catalog(data)
-
-        return {
-            "message": "Device deleted successfully",
-            "device_id": device_id
-        }
+        return catalogue, None
 
     # --------------------------------------------------
-    # Services
+    # GET
     # --------------------------------------------------
-    def get_services(self, service_id: Optional[str] = None) -> Dict[str, Any]:
-        data = self.storage.load_catalog()
+    @cherrypy.tools.json_out()
+    def GET(self, *uri, **params):
+        catalogue, error = self.check_catalogue()
+        if error:
+            return error
 
-        if service_id:
-            service = self.find_by_id(data["services"], service_id)
-            if not service:
-                return self.error_response(404, f"Service '{service_id}' not found")
-            return service
-
-        return {
-            "count": len(data["services"]),
-            "services": data["services"]
-        }
-
-    def create_or_update_service(self, service: Dict[str, Any]) -> Dict[str, Any]:
-        validation_error = self.validate_service(service)
-        if validation_error:
-            return self.error_response(400, validation_error)
-
-        data = self.storage.load_catalog()
-        existing = self.find_by_id(data["services"], service["id"])
-        created_at = existing.get("created_at") if existing else self.config.now_utc_iso()
-
-        service["created_at"] = created_at
-        service["last_update"] = self.config.now_utc_iso()
-        service["status"] = service.get("status", "active")
-
-        action = self.upsert_by_id(data["services"], service)
-        self.storage.save_catalog(data)
-
-        cherrypy.response.status = 201 if action == "created" else 200
-        return {
-            "message": f"Service {action} successfully",
-            "service": service
-        }
-
-    def update_service(self, service_id: Optional[str], updated_fields: Dict[str, Any]) -> Dict[str, Any]:
-        if not service_id:
-            return self.error_response(400, "Service ID is required in the URL")
-
-        data = self.storage.load_catalog()
-        service = self.find_by_id(data["services"], service_id)
-
-        if not service:
-            return self.error_response(404, f"Service '{service_id}' not found")
-
-        merged = {**service, **updated_fields}
-        validation_error = self.validate_service(merged)
-        if validation_error:
-            return self.error_response(400, validation_error)
-
-        merged["id"] = service_id
-        merged["created_at"] = service.get("created_at", self.config.now_utc_iso())
-        merged["last_update"] = self.config.now_utc_iso()
-
-        self.upsert_by_id(data["services"], merged)
-        self.storage.save_catalog(data)
-
-        return {
-            "message": "Service updated successfully",
-            "service": merged
-        }
-
-    def delete_service(self, service_id: Optional[str]) -> Dict[str, Any]:
-        if not service_id:
-            return self.error_response(400, "Service ID is required in the URL")
-
-        data = self.storage.load_catalog()
-        service = self.find_by_id(data["services"], service_id)
-
-        if not service:
-            return self.error_response(404, f"Service '{service_id}' not found")
-
-        data["services"] = [s for s in data["services"] if s.get("id") != service_id]
-        self.storage.save_catalog(data)
-
-        return {
-            "message": "Service deleted successfully",
-            "service_id": service_id
-        }
-
-    # --------------------------------------------------
-    # Config
-    # --------------------------------------------------
-    def get_config(self) -> Dict[str, Any]:
-        data = self.storage.load_catalog()
-        return data["config"]
-
-    def update_config(self, new_config: Dict[str, Any]) -> Dict[str, Any]:
-        if not isinstance(new_config, dict):
-            return self.error_response(400, "Config must be a JSON object")
-
-        data = self.storage.load_catalog()
-        data["config"].update(new_config)
-        self.storage.save_catalog(data)
-
-        return {
-            "message": "Configuration updated successfully",
-            "config": data["config"]
-        }
-
-    # --------------------------------------------------
-    # Root
-    # --------------------------------------------------
-    def get_root(self) -> Dict[str, Any]:
-        data = self.storage.load_catalog()
-        return {
-            "message": "Welcome to Smart Plant Care System Catalogue",
-            "endpoints": {
-                "users": "/users",
-                "user_by_id": "/users/<user_id>",
-                "user_by_telegram_id": "/users?telegram_id=123456789",
-                "devices": "/devices",
-                "device_by_id": "/devices/<device_id>",
-                "services": "/services",
-                "service_by_id": "/services/<service_id>",
-                "config": "/config"
-            },
-            "summary": {
-                "devices": len(data["devices"]),
-                "users": len(data["users"]),
-                "services": len(data["services"])
+        # GET /
+        if len(uri) == 0:
+            return {
+                "message": "Welcome to Smart Plant Care System Catalogue",
+                "endpoints": {
+                    "users": "/users",
+                    "devices": "/devices",
+                    "services": "/services",
+                    "config": "/config"
+                },
+                "summary": {
+                    "users": len(catalogue["users"]),
+                    "devices": len(catalogue["devices"]),
+                    "services": len(catalogue["services"])
+                }
             }
-        }
 
-class UsersAPI:
-    exposed = True
+        resource = uri[0]
 
-    def __init__(self, service: CatalogueService) -> None:
-        self.service = service
+        # GET /users
+        # GET /users/<user_id>
+        # GET /users?telegram_id=<telegram_id>
+        if resource == "users":
+            if len(uri) > 2:
+                return self.error_response(404, "Invalid users path")
 
-    @cherrypy.tools.json_out()
-    def GET(self, user_id=None, telegram_id=None):
-        if telegram_id:
-            user = self.service.get_user_by_telegram_id(int(telegram_id))
-            if not user:
-                return self.service.error_response(404, f"Telegram user '{telegram_id}' not found")
-            return user
+            if "telegram_id" in params:
+                try:
+                    requested_telegram_id = int(params["telegram_id"])
+                except (TypeError, ValueError):
+                    return self.error_response(
+                        400,
+                        "telegram_id must be an integer"
+                    )
 
-        return self.service.get_users(user_id=user_id)
+                for user in catalogue["users"]:
+                    if int(user.get("telegram_id", -1)) == requested_telegram_id:
+                        return user
 
+                return self.error_response(
+                    404,
+                    f"Telegram user '{requested_telegram_id}' not found"
+                )
+
+            if len(uri) == 2:
+                user = self.find_by_id(catalogue["users"], uri[1])
+
+                if user is None:
+                    return self.error_response(
+                        404,
+                        f"User '{uri[1]}' not found"
+                    )
+
+                return user
+
+            return {
+                "count": len(catalogue["users"]),
+                "users": catalogue["users"]
+            }
+
+        # GET /devices
+        # GET /devices/<device_id>
+        if resource == "devices":
+            if len(uri) > 2:
+                return self.error_response(404, "Invalid devices path")
+
+            if len(uri) == 2:
+                device = self.find_by_id(catalogue["devices"], uri[1])
+
+                if device is None:
+                    return self.error_response(
+                        404,
+                        f"Device '{uri[1]}' not found"
+                    )
+
+                return device
+
+            return {
+                "count": len(catalogue["devices"]),
+                "devices": catalogue["devices"]
+            }
+
+        # GET /services
+        # GET /services/<service_id>
+        if resource == "services":
+            if len(uri) > 2:
+                return self.error_response(404, "Invalid services path")
+
+            if len(uri) == 2:
+                service = self.find_by_id(catalogue["services"], uri[1])
+
+                if service is None:
+                    return self.error_response(
+                        404,
+                        f"Service '{uri[1]}' not found"
+                    )
+
+                return service
+
+            return {
+                "count": len(catalogue["services"]),
+                "services": catalogue["services"]
+            }
+
+        # GET /config
+        if resource == "config":
+            if len(uri) != 1:
+                return self.error_response(404, "Invalid config path")
+
+            return catalogue["config"]
+
+        return self.error_response(404, "Endpoint not found")
+
+    # --------------------------------------------------
+    # POST
+    # --------------------------------------------------
     @cherrypy.tools.json_in()
     @cherrypy.tools.json_out()
-    def POST(self):
-        return self.service.create_or_update_user(cherrypy.request.json)
-            
-class RootAPI:
-    exposed = True
+    def POST(self, *uri, **params):
+        if len(uri) != 1:
+            return self.error_response(404, "Invalid endpoint")
 
-    def __init__(self, service: CatalogueService) -> None:
-        self.users = UsersAPI(service)
-        self.service = service
-        self.devices = DevicesAPI(service)
-        self.services = ServicesAPI(service)
-        self.config = ConfigAPI(service)
+        catalogue, error = self.check_catalogue()
+        if error:
+            return error
 
-    @cherrypy.tools.json_out()
-    def GET(self):
-        return self.service.get_root()
+        resource = uri[0]
+        new_item = cherrypy.request.json
 
+        if not isinstance(new_item, dict):
+            return self.error_response(400, "The body must be a JSON object")
 
-class DevicesAPI:
-    exposed = True
+        # POST /users
+        if resource == "users":
+            validation_error = self.validate_user(new_item)
+            if validation_error:
+                return self.error_response(400, validation_error)
 
-    def __init__(self, service: CatalogueService) -> None:
-        self.service = service
+            if self.find_by_id(catalogue["users"], new_item["id"]) is not None:
+                return self.error_response(
+                    409,
+                    f"User '{new_item['id']}' already exists"
+                )
 
-    @cherrypy.tools.json_out()
-    def GET(self, device_id=None):
-        return self.service.get_devices(device_id=device_id)
+            new_item.setdefault("role", "user")
+            new_item.setdefault("status", "active")
+            catalogue["users"].append(new_item)
+            self.save_catalogue(catalogue)
 
+            cherrypy.response.status = 201
+            return {
+                "message": "User created successfully",
+                "user": new_item
+            }
+
+        # POST /devices
+        if resource == "devices":
+            validation_error = self.validate_device(new_item)
+            if validation_error:
+                return self.error_response(400, validation_error)
+
+            if self.find_by_id(catalogue["devices"], new_item["id"]) is not None:
+                return self.error_response(
+                    409,
+                    f"Device '{new_item['id']}' already exists"
+                )
+
+            now = self.current_time()
+            new_item.setdefault("status", "active")
+            new_item.setdefault("created_at", now)
+            new_item.setdefault("last_update", now)
+
+            catalogue["devices"].append(new_item)
+            self.save_catalogue(catalogue)
+
+            cherrypy.response.status = 201
+            return {
+                "message": "Device created successfully",
+                "device": new_item
+            }
+
+        # POST /services
+        #
+        # Service registration is idempotent:
+        # - a new ID is appended once;
+        # - an existing ID is updated instead of being appended again.
+        if resource == "services":
+            validation_error = self.validate_service(new_item)
+            if validation_error:
+                return self.error_response(400, validation_error)
+
+            with self.lock:
+                catalogue, error = self.check_catalogue()
+                if error:
+                    return error
+
+                position = self.find_position_by_id(
+                    catalogue["services"],
+                    new_item["id"]
+                )
+
+                now = self.current_time()
+                new_item.setdefault("status", "active")
+
+                if position is None:
+                    new_item.setdefault("created_at", now)
+                    new_item["last_update"] = now
+                    catalogue["services"].append(new_item)
+                    self.save_catalogue(catalogue)
+
+                    cherrypy.response.status = 201
+                    return {
+                        "message": "Service registered successfully",
+                        "action": "created",
+                        "service": new_item
+                    }
+
+                existing_service = catalogue["services"][position]
+                updated_service = existing_service.copy()
+                updated_service.update(new_item)
+                updated_service["id"] = existing_service["id"]
+                updated_service["created_at"] = existing_service.get(
+                    "created_at",
+                    now
+                )
+                updated_service["last_update"] = now
+
+                catalogue["services"][position] = updated_service
+                self.save_catalogue(catalogue)
+
+                cherrypy.response.status = 200
+                return {
+                    "message": "Service registration refreshed",
+                    "action": "updated",
+                    "service": updated_service
+                }
+
+        return self.error_response(
+            405,
+            f"POST is not allowed for '{resource}'"
+        )
+
+    # --------------------------------------------------
+    # PUT
+    # --------------------------------------------------
     @cherrypy.tools.json_in()
     @cherrypy.tools.json_out()
-    def POST(self):
-        return self.service.create_or_update_device(cherrypy.request.json)
+    def PUT(self, *uri, **params):
+        catalogue, error = self.check_catalogue()
+        if error:
+            return error
 
-    @cherrypy.tools.json_in()
+        updated_fields = cherrypy.request.json
+
+        if not isinstance(updated_fields, dict):
+            return self.error_response(400, "The body must be a JSON object")
+
+        if len(uri) == 0:
+            return self.error_response(400, "Resource path is required")
+
+        resource = uri[0]
+
+        # PUT /config
+        if resource == "config":
+            if len(uri) != 1:
+                return self.error_response(404, "Invalid config path")
+
+            catalogue["config"].update(updated_fields)
+            self.save_catalogue(catalogue)
+
+            return {
+                "message": "Configuration updated successfully",
+                "config": catalogue["config"]
+            }
+
+        if len(uri) != 2:
+            return self.error_response(
+                400,
+                "The resource ID is required in the URL"
+            )
+
+        item_id = uri[1]
+
+        # PUT /users/<user_id>
+        if resource == "users":
+            position = self.find_position_by_id(catalogue["users"], item_id)
+
+            if position is None:
+                return self.error_response(
+                    404,
+                    f"User '{item_id}' not found"
+                )
+
+            user = catalogue["users"][position].copy()
+            user.update(updated_fields)
+            user["id"] = item_id
+
+            validation_error = self.validate_user(user)
+            if validation_error:
+                return self.error_response(400, validation_error)
+
+            user.setdefault("role", "user")
+            user.setdefault("status", "active")
+            catalogue["users"][position] = user
+            self.save_catalogue(catalogue)
+
+            return {
+                "message": "User updated successfully",
+                "user": user
+            }
+
+        # PUT /devices/<device_id>
+        if resource == "devices":
+            position = self.find_position_by_id(catalogue["devices"], item_id)
+
+            if position is None:
+                return self.error_response(
+                    404,
+                    f"Device '{item_id}' not found"
+                )
+
+            device = catalogue["devices"][position].copy()
+            device.update(updated_fields)
+            device["id"] = item_id
+
+            validation_error = self.validate_device(device)
+            if validation_error:
+                return self.error_response(400, validation_error)
+
+            device["last_update"] = self.current_time()
+            catalogue["devices"][position] = device
+            self.save_catalogue(catalogue)
+
+            return {
+                "message": "Device updated successfully",
+                "device": device
+            }
+
+        # PUT /services/<service_id>
+        if resource == "services":
+            position = self.find_position_by_id(catalogue["services"], item_id)
+
+            if position is None:
+                return self.error_response(
+                    404,
+                    f"Service '{item_id}' not found"
+                )
+
+            service = catalogue["services"][position].copy()
+            service.update(updated_fields)
+            service["id"] = item_id
+
+            validation_error = self.validate_service(service)
+            if validation_error:
+                return self.error_response(400, validation_error)
+
+            service["last_update"] = self.current_time()
+            catalogue["services"][position] = service
+            self.save_catalogue(catalogue)
+
+            return {
+                "message": "Service updated successfully",
+                "service": service
+            }
+
+        return self.error_response(
+            405,
+            f"PUT is not allowed for '{resource}'"
+        )
+
+    # --------------------------------------------------
+    # DELETE
+    # --------------------------------------------------
     @cherrypy.tools.json_out()
-    def PUT(self, device_id=None):
-        return self.service.update_device(device_id=device_id, updated_fields=cherrypy.request.json)
+    def DELETE(self, *uri, **params):
+        if len(uri) != 2:
+            return self.error_response(
+                400,
+                "The resource ID is required in the URL"
+            )
 
-    @cherrypy.tools.json_out()
-    def DELETE(self, device_id=None):
-        return self.service.delete_device(device_id=device_id)
+        catalogue, error = self.check_catalogue()
+        if error:
+            return error
+
+        resource = uri[0]
+        item_id = uri[1]
+
+        # DELETE /users/<user_id>
+        if resource == "users":
+            position = self.find_position_by_id(catalogue["users"], item_id)
+
+            if position is None:
+                return self.error_response(
+                    404,
+                    f"User '{item_id}' not found"
+                )
+
+            deleted_user = catalogue["users"].pop(position)
+            self.save_catalogue(catalogue)
+
+            return {
+                "message": "User deleted successfully",
+                "user": deleted_user
+            }
+
+        # DELETE /devices/<device_id>
+        if resource == "devices":
+            position = self.find_position_by_id(catalogue["devices"], item_id)
+
+            if position is None:
+                return self.error_response(
+                    404,
+                    f"Device '{item_id}' not found"
+                )
+
+            deleted_device = catalogue["devices"].pop(position)
+
+            # Remove the deleted device from every user.
+            for user in catalogue["users"]:
+                if item_id in user.get("devices", []):
+                    user["devices"].remove(item_id)
+
+            self.save_catalogue(catalogue)
+
+            return {
+                "message": "Device deleted successfully",
+                "device": deleted_device
+            }
+
+        # DELETE /services/<service_id>
+        if resource == "services":
+            position = self.find_position_by_id(catalogue["services"], item_id)
+
+            if position is None:
+                return self.error_response(
+                    404,
+                    f"Service '{item_id}' not found"
+                )
+
+            deleted_service = catalogue["services"].pop(position)
+            self.save_catalogue(catalogue)
+
+            return {
+                "message": "Service deleted successfully",
+                "service": deleted_service
+            }
+
+        return self.error_response(
+            405,
+            f"DELETE is not allowed for '{resource}'"
+        )
 
 
-class ServicesAPI:
-    exposed = True
-
-    def __init__(self, service: CatalogueService) -> None:
-        self.service = service
-
-    @cherrypy.tools.json_out()
-    def GET(self, service_id=None):
-        return self.service.get_services(service_id=service_id)
-
-    @cherrypy.tools.json_in()
-    @cherrypy.tools.json_out()
-    def POST(self):
-        return self.service.create_or_update_service(cherrypy.request.json)
-
-    @cherrypy.tools.json_in()
-    @cherrypy.tools.json_out()
-    def PUT(self, service_id=None):
-        return self.service.update_service(service_id=service_id, updated_fields=cherrypy.request.json)
-
-    @cherrypy.tools.json_out()
-    def DELETE(self, service_id=None):
-        return self.service.delete_service(service_id=service_id)
-
-
-class ConfigAPI:
-    exposed = True
-
-    def __init__(self, service: CatalogueService) -> None:
-        self.service = service
-
-    @cherrypy.tools.json_out()
-    def GET(self):
-        return self.service.get_config()
-
-    @cherrypy.tools.json_in()
-    @cherrypy.tools.json_out()
-    def PUT(self):
-        return self.service.update_config(cherrypy.request.json)
-
-
-class CatalogueDispatcher:
-    exposed = True
-
-    def __init__(self, service: CatalogueService) -> None:
-        self.service = service
-        self.root = RootAPI(service)
-        self.devices_api = DevicesAPI(service)
-        self.services_api = ServicesAPI(service)
-        self.users_api = UsersAPI(service)
-        self.config_api = ConfigAPI(service)
-
-    @cherrypy.tools.json_out()
-    def GET(self, *vpath, **params):
-        return self._dispatch("GET", *vpath, **params)
-
-    @cherrypy.tools.json_in()
-    @cherrypy.tools.json_out()
-    def POST(self, *vpath, **params):
-        return self._dispatch("POST", *vpath, **params)
-
-    @cherrypy.tools.json_in()
-    @cherrypy.tools.json_out()
-    def PUT(self, *vpath, **params):
-        return self._dispatch("PUT", *vpath, **params)
-
-    @cherrypy.tools.json_out()
-    def DELETE(self, *vpath, **params):
-        return self._dispatch("DELETE", *vpath, **params)
-
-    def _dispatch(self, method: str, *vpath, **params):
-        if len(vpath) == 0 or vpath == ("",):
-            return getattr(self.root, method)()
-
-        if vpath[0] == "devices":
-            device_id = vpath[1] if len(vpath) > 1 else None
-
-            if method in ["GET", "PUT", "DELETE"]:
-                return getattr(self.devices_api, method)(device_id=device_id)
-
-            if method == "POST":
-                return self.devices_api.POST()
-
-        if vpath[0] == "services":
-            service_id = vpath[1] if len(vpath) > 1 else None
-
-            if method in ["GET", "PUT", "DELETE"]:
-                return getattr(self.services_api, method)(service_id=service_id)
-
-            if method == "POST":
-                return self.services_api.POST()
-
-        if vpath[0] == "users":
-            user_id = vpath[1] if len(vpath) > 1 else None
-
-            if method == "GET":
-                telegram_id = params.get("telegram_id")
-                return self.users_api.GET(user_id=user_id, telegram_id=telegram_id)
-
-            if method == "POST":
-                return self.users_api.POST()
-
-            return self.service.error_response(405, f"Method {method} not allowed for users")
-
-        if vpath[0] == "config":
-            if len(vpath) > 1:
-                return self.service.error_response(404, "Invalid config path")
-
-            if method in ["GET", "PUT"]:
-                return getattr(self.config_api, method)()
-
-            return self.service.error_response(405, f"Method {method} not allowed for config")
-
-        return self.service.error_response(404, "Endpoint not found")
 if __name__ == "__main__":
-    service = CatalogueService()
+    catalogue_file = os.environ.get("CATALOG_FILE", "catalog.json")
+    host = os.environ.get("CATALOG_HOST", "0.0.0.0")
+    port = int(os.environ.get("CATALOG_PORT", 8000))
 
-    cherrypy.config.update({
-        "server.socket_host": service.config.host,
-        "server.socket_port": service.config.port,
-        "log.screen": True
-    })
-
-    conf = {
+    configuration = {
         "/": {
-            "request.dispatch": cherrypy.dispatch.MethodDispatcher()
+            "request.dispatch": cherrypy.dispatch.MethodDispatcher(),
+            "tools.sessions.on": True
         }
     }
 
-    app = CatalogueDispatcher(service)
-    cherrypy.quickstart(app, "/", conf)
+    cherrypy.config.update({
+        "server.socket_host": host,
+        "server.socket_port": port,
+        "log.screen": True
+    })
+
+    web_service = CatalogueWebService(catalogue_file)
+
+    cherrypy.tree.mount(web_service, "/", configuration)
+    cherrypy.engine.start()
+    cherrypy.engine.block()
