@@ -33,8 +33,13 @@ class PlantSimulator:
 
     def day_fraction(self) -> float:
         now = datetime.now()
-        seconds_today = now.hour * 3600 + now.minute * 60 + now.second
-        return seconds_today / 86400.0
+        seconds_today = 0
+        seconds_today += now.hour * 3600
+        seconds_today += now.minute * 60
+        seconds_today += now.second
+        fraction = seconds_today / 86400
+
+        return fraction
 
     def update_environment_state(self) -> None:
         now_ts = time.time()
