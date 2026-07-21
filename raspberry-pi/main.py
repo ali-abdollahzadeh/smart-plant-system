@@ -2,421 +2,177 @@ import json
 import os
 import threading
 import time
-from typing import Any, Dict
-
-import paho.mqtt.client as mqtt
 import requests
-
+import paho.mqtt.client as mqtt
 from simulator import PlantSimulator
 
 
-def load_config() -> Dict[str, Any]:
-    return {
-        "device_id": os.environ.get(
-            "DEVICE_ID",
-            "raspi-01"
-        ),
-        "device_name": os.environ.get(
-            "DEVICE_NAME",
-            "Plant Sensor Node 1"
-        ),
-        "device_type": os.environ.get(
-            "DEVICE_TYPE",
-            "sensor_node"
-        ),
-        "catalog_url": os.environ.get(
-            "CATALOG_URL",
-            "http://catalogue:8000"
-        ),
-        "mqtt_broker": os.environ.get(
-            "MQTT_BROKER",
-            "mosquitto"
-        ),
-        "mqtt_port": int(
-            os.environ.get("MQTT_PORT", 1883)
-        ),
-        "mqtt_topic_base": os.environ.get(
-            "MQTT_TOPIC_BASE",
-            "smartplant/sensors"
-        ),
-        "mqtt_command_topic_base": os.environ.get(
-            "MQTT_COMMAND_TOPIC_BASE",
-            "smartplant/commands"
-        ),
-        "publish_interval": int(
-            os.environ.get("PUBLISH_INTERVAL", 10)
-        ),
-        "registration_retry_delay": int(
-            os.environ.get(
-                "REGISTRATION_RETRY_DELAY",
-                5
-            )
-        ),
-    }
-
-
 class SensorNode:
-    def __init__(self, config: Dict[str, Any]) -> None:
-        self.config = config
-        self.simulator = PlantSimulator(
-            self.config["device_id"]
-        )
 
+    def __init__(self, id, sub_topic, pub_topic, broker, port):
+        self.id = id
+        self.sub_topic = sub_topic
+        self.pub_topic = pub_topic
+        self.broker = broker
+        self.port = port
+
+        # Additional configurations with defaults
+        self.device_name = os.environ.get("DEVICE_NAME", "Plant Sensor Node 1")
+        self.device_type = os.environ.get("DEVICE_TYPE", "sensor_node")
+        self.catalog_url = os.environ.get("CATALOG_URL", "http://catalogue:8000")
+        self.publish_interval = int(os.environ.get("PUBLISH_INTERVAL", 10))
+        self.registration_retry_delay = int(os.environ.get("REGISTRATION_RETRY_DELAY", 5))
+
+        # Dynamic Topics
+        self.sensor_topic = f"{self.sub_topic}/{self.id}"
+        self.command_topic = f"{self.pub_topic}/{self.id}"
+
+        self.running = True
         self.mqtt_connected = False
-        self.stop_event = threading.Event()
+        self.simulator = PlantSimulator(self.id)
 
-        self.mqtt_client = mqtt.Client(
-            client_id=self.config["device_id"],
-            clean_session=True
-        )
+        # MQTT Setup
+        self.mqtt_client = mqtt.Client(client_id=self.id, clean_session=True)
+        self.mqtt_client.on_connect = self.on_mqtt_connect
+        self.mqtt_client.on_disconnect = self.on_mqtt_disconnect
+        self.mqtt_client.on_message = self.on_mqtt_message
 
-        self.mqtt_client.on_connect = (
-            self.on_mqtt_connect
-        )
-        self.mqtt_client.on_disconnect = (
-            self.on_mqtt_disconnect
-        )
-        self.mqtt_client.on_message = (
-            self.on_mqtt_message
-        )
-
-    # --------------------------------------------------
-    # Topic helpers
-    # --------------------------------------------------
-    def sensor_topic(self) -> str:
-        return (
-            f"{self.config['mqtt_topic_base']}/"
-            f"{self.config['device_id']}"
-        )
-
-    def command_topic(self) -> str:
-        return (
-            f"{self.config['mqtt_command_topic_base']}/"
-            f"{self.config['device_id']}"
-        )
-
-    # --------------------------------------------------
-    # Sensor data collection
-    # --------------------------------------------------
-    def collect_data(self) -> Dict[str, Any]:
-        return self.simulator.collect_data()
-
-    # --------------------------------------------------
-    # Catalogue registration
-    # --------------------------------------------------
-    def build_registration_payload(
-        self
-    ) -> Dict[str, Any]:
-        return {
-            "id": self.config["device_id"],
-            "name": self.config["device_name"],
-            "type": self.config["device_type"],
-            "mqtt_topic": self.sensor_topic(),
-            "command_topic": self.command_topic(),
+    # =========================================================================
+    # Catalogue Registration
+    # =========================================================================
+    def register_device(self):
+        payload = {
+            "id": self.id,
+            "name": self.device_name,
+            "type": self.device_type,
+            "mqtt_topic": self.sensor_topic,
+            "command_topic": self.command_topic,
             "status": "active"
         }
 
-    def register_device(self) -> bool:
-        payload = self.build_registration_payload()
-
         try:
-            response = requests.post(
-                f"{self.config['catalog_url']}/devices",
-                json=payload,
-                timeout=10
-            )
+            url = f"{self.catalog_url}/devices"
+            response = requests.post(url, json=payload, timeout=10)
 
             if response.status_code in (200, 201):
                 try:
-                    result = response.json()
-                    action = result.get("action")
+                    action = response.json().get("action")
                 except ValueError:
                     action = None
 
                 if action == "updated":
-                    print(
-                        "[CATALOGUE] Device already "
-                        "registered; information refreshed"
-                    )
+                    print("[CATALOGUE] Device already registered; information refreshed")
                 else:
-                    print(
-                        "[CATALOGUE] Registration "
-                        f"successful: {payload}"
-                    )
-
+                    print(f"[CATALOGUE] Registration successful: {payload}")
                 return True
 
-            # The current Catalogue returns HTTP 409 when the
-            # device is already registered. This is not a startup
-            # failure, so treat it as a successful registration
-            # and stop the retry loop.
             if response.status_code == 409:
                 try:
-                    result = response.json()
-                    error_message = str(
-                        result.get("error", "")
-                    ).lower()
+                    error_message = str(response.json().get("error", "")).lower()
                 except ValueError:
                     error_message = response.text.lower()
 
                 if "already exists" in error_message:
-                    print(
-                        "[CATALOGUE] Device already registered; "
-                        "continuing without retry"
-                    )
+                    print("[CATALOGUE] Device already registered; continuing without retry")
                     return True
 
-            print(
-                "[CATALOGUE] Registration failed - "
-                f"status={response.status_code}, "
-                f"response={response.text}"
-            )
+            print(f"[CATALOGUE] Registration failed - status={response.status_code}, response={response.text}")
 
         except requests.RequestException as error:
-            print(
-                f"[CATALOGUE] Registration error: "
-                f"{error}"
-            )
+            print(f"[CATALOGUE] Registration error: {error}")
 
         return False
 
-    def registration_startup_task(self) -> None:
-        retry_delay = self.config[
-            "registration_retry_delay"
-        ]
+    def registration_task(self):
+        while self.running and not self.register_device():
+            print(f"[CATALOGUE] Retrying registration in {self.registration_retry_delay} seconds...")
+            time.sleep(self.registration_retry_delay)
 
-        while (
-            not self.stop_event.is_set()
-            and not self.register_device()
-        ):
-            print(
-                "[CATALOGUE] Retrying registration "
-                f"in {retry_delay} seconds..."
-            )
-            self.stop_event.wait(retry_delay)
-
-    # --------------------------------------------------
-    # MQTT callbacks
-    # --------------------------------------------------
-    def on_mqtt_connect(
-        self,
-        client,
-        userdata,
-        flags,
-        rc
-    ) -> None:
+    # =========================================================================
+    # MQTT Callbacks
+    # =========================================================================
+    def on_mqtt_connect(self, client, userdata, flags, rc):
         if rc == 0:
             self.mqtt_connected = True
-
-            client.subscribe(
-                self.command_topic(),
-                qos=2
-            )
-
-            print(
-                f"[MQTT] Connected to "
-                f"{self.config['mqtt_broker']}:"
-                f"{self.config['mqtt_port']}"
-            )
-            print(
-                f"[MQTT] Subscribed to "
-                f"{self.command_topic()}"
-            )
-
+            client.subscribe(self.command_topic, qos=2)
+            print(f"[MQTT] Connected to {self.broker}:{self.port}")
+            print(f"[MQTT] Subscribed to {self.command_topic}")
         else:
             self.mqtt_connected = False
-            print(
-                f"[MQTT] Connection failed with rc={rc}"
-            )
+            print(f"[MQTT] Connection failed with rc={rc}")
 
-    def on_mqtt_disconnect(
-        self,
-        client,
-        userdata,
-        rc
-    ) -> None:
+    def on_mqtt_disconnect(self, client, userdata, rc):
         self.mqtt_connected = False
         print(f"[MQTT] Disconnected with rc={rc}")
 
-    def on_mqtt_message(
-        self,
-        client,
-        userdata,
-        message
-    ) -> None:
+    def on_mqtt_message(self, client, userdata, message):
         try:
-            payload = message.payload.decode("utf-8")
-            payload_dict = json.loads(payload)
-
-            print(
-                f"[MQTT] Command received on "
-                f"{message.topic}: {payload_dict}"
-            )
-
-            self.simulator.handle_command(
-                payload_dict
-            )
-
+            payload = json.loads(message.payload.decode("utf-8"))
+            print(f"[MQTT] Command received on {message.topic}: {payload}")
+            self.simulator.handle_command(payload)
         except json.JSONDecodeError:
-            print(
-                "[MQTT] Invalid command JSON on "
-                f"topic {message.topic}"
-            )
-
+            print(f"[MQTT] Invalid command JSON on topic {message.topic}")
         except Exception as error:
-            print(
-                f"[MQTT] Command processing error: "
-                f"{error}"
-            )
+            print(f"[MQTT] Command processing error: {error}")
 
-    def mqtt_loop(self) -> None:
-        while not self.stop_event.is_set():
+    # =========================================================================
+    # Worker Loops
+    # =========================================================================
+    def mqtt_loop(self):
+        while self.running:
             try:
-                self.mqtt_client.connect(
-                    self.config["mqtt_broker"],
-                    self.config["mqtt_port"],
-                    keepalive=60
-                )
-
+                self.mqtt_client.connect(self.broker, self.port, keepalive=60)
                 self.mqtt_client.loop_forever()
-
             except Exception as error:
                 self.mqtt_connected = False
-                print(
-                    f"[MQTT] Connection error: {error}"
-                )
-                self.stop_event.wait(5)
+                print(f"[MQTT] Connection error: {error}")
+                time.sleep(5)
 
-    # --------------------------------------------------
-    # Sensor publishing
-    # --------------------------------------------------
-    def publish_data(
-        self,
-        data: Dict[str, Any]
-    ) -> None:
-        if not self.mqtt_connected:
-            print(
-                "[MQTT] Cannot publish sensor data "
-                "because MQTT is not connected"
-            )
-            return
+    def publish_loop(self):
+        while self.running:
+            if self.mqtt_connected:
+                try:
+                    data = self.simulator.collect_data()
+                    info = self.mqtt_client.publish(
+                        self.sensor_topic,
+                        json.dumps(data),
+                        qos=2
+                    )
+                    info.wait_for_publish()
 
-        topic = self.sensor_topic()
-
-        try:
-            information = self.mqtt_client.publish(
-                topic,
-                json.dumps(data),
-                qos=2
-            )
-
-            information.wait_for_publish()
-
-            if information.rc == mqtt.MQTT_ERR_SUCCESS:
-                print(
-                    f"[MQTT] Published to {topic}: "
-                    f"{data}"
-                )
+                    if info.rc == mqtt.MQTT_ERR_SUCCESS:
+                        print(f"[MQTT] Published to {self.sensor_topic}: {data}")
+                    else:
+                        print(f"[MQTT] Sensor publish failed with rc={info.rc}")
+                except Exception as error:
+                    print(f"[MQTT] Publish error: {error}")
             else:
-                print(
-                    "[MQTT] Sensor publish failed "
-                    f"with rc={information.rc}"
-                )
+                print("[MQTT] Cannot publish sensor data because MQTT is not connected")
 
-        except Exception as error:
-            print(f"[MQTT] Publish error: {error}")
+            time.sleep(self.publish_interval)
 
-    def publish_loop(self) -> None:
-        interval = self.config["publish_interval"]
+    # =========================================================================
+    # Run & Stop
+    # =========================================================================
+    def run(self):
+        print("[START] Raspberry Pi sensor node started")
+        print(f"[INFO] Device ID: {self.id}")
+        print(f"[INFO] Catalogue URL: {self.catalog_url}")
+        print(f"[INFO] MQTT Broker: {self.broker}:{self.port}")
 
-        while not self.stop_event.is_set():
-            try:
-                sensor_data = self.collect_data()
-                self.publish_data(sensor_data)
-
-            except Exception as error:
-                print(
-                    f"[SENSOR] Data collection error: "
-                    f"{error}"
-                )
-
-            self.stop_event.wait(interval)
-
-    # --------------------------------------------------
-    # Run and stop
-    # --------------------------------------------------
-    def run(self) -> None:
-        print(
-            "[START] Raspberry Pi sensor node started"
-        )
-        print(
-            f"[INFO] Device ID: "
-            f"{self.config['device_id']}"
-        )
-        print(
-            f"[INFO] Device Name: "
-            f"{self.config['device_name']}"
-        )
-        print(
-            f"[INFO] Device Type: "
-            f"{self.config['device_type']}"
-        )
-        print(
-            f"[INFO] Catalogue URL: "
-            f"{self.config['catalog_url']}"
-        )
-        print(
-            f"[INFO] MQTT Broker: "
-            f"{self.config['mqtt_broker']}:"
-            f"{self.config['mqtt_port']}"
-        )
-        print(
-            f"[INFO] Sensor Topic: "
-            f"{self.sensor_topic()}"
-        )
-        print(
-            f"[INFO] Command Topic: "
-            f"{self.command_topic()}"
-        )
-        print(
-            f"[INFO] Publish Interval: "
-            f"{self.config['publish_interval']} "
-            "seconds"
-        )
-
-        threading.Thread(
-            target=self.registration_startup_task,
-            daemon=True,
-            name="catalogue-registration-thread"
-        ).start()
-
-        threading.Thread(
-            target=self.mqtt_loop,
-            daemon=True,
-            name="mqtt-thread"
-        ).start()
-
-        threading.Thread(
-            target=self.publish_loop,
-            daemon=True,
-            name="sensor-publish-thread"
-        ).start()
+        threading.Thread(target=self.registration_task, daemon=True, name="registration-thread").start()
+        threading.Thread(target=self.mqtt_loop, daemon=True, name="mqtt-thread").start()
+        threading.Thread(target=self.publish_loop, daemon=True, name="publish-thread").start()
 
         try:
             while True:
                 time.sleep(1)
-
         except KeyboardInterrupt:
             self.stop()
 
-    def stop(self) -> None:
-        print(
-            "[STOP] Stopping Raspberry Pi "
-            "sensor node"
-        )
-
-        self.stop_event.set()
-
+    def stop(self):
+        print("\n[STOP] Stopping Raspberry Pi sensor node")
+        self.running = False
         try:
             self.mqtt_client.disconnect()
         except Exception:
@@ -424,5 +180,11 @@ class SensorNode:
 
 
 if __name__ == "__main__":
-    node = SensorNode(load_config())
+    node = SensorNode(
+        id=os.environ.get("DEVICE_ID", "raspi-01"),
+        sub_topic=os.environ.get("MQTT_TOPIC_BASE", "smartplant/sensors"),
+        pub_topic=os.environ.get("MQTT_COMMAND_TOPIC_BASE", "smartplant/commands"),
+        broker=os.environ.get("MQTT_BROKER", "mosquitto"),
+        port=int(os.environ.get("MQTT_PORT", 1883))
+    )
     node.run()

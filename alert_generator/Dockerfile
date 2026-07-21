@@ -25,7 +25,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY alert_generator/main.py .
 COPY alert_generator/config.json .
-COPY alert_generator/rule_engine.py .
 
 EXPOSE 8091
 
