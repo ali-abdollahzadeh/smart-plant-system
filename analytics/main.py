@@ -638,6 +638,7 @@ if __name__ == "__main__":
 
     cherrypy.config.update({
         "server.socket_host": analytics.service_host,
+        
         "server.socket_port": analytics.service_port,
         "log.screen": True
     })
