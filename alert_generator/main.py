@@ -23,15 +23,52 @@ class AlertRuleEngine:
     def __init__(self, thresholds):
         self.thresholds = thresholds
 
+
+    def _check_sensor_limit(self, device_id, sensor_name, value):
+        if value is None:
+            return None
+
+        limits = self.thresholds.get(sensor_name, {})
+        sensor_min = limits.get("min")
+        sensor_max = limits.get("max")
+
+        if sensor_min is not None and value < sensor_min:
+            return {
+                "device_id": device_id,
+                "alert": f"low_{sensor_name}",
+                "value": value,
+                "threshold": sensor_min,
+                "threshold_type": "min",
+                "timestamp": now_utc_iso()
+            }
+        
+        if sensor_max is not None and value > sensor_max:
+            return {
+                "device_id": device_id,
+                "alert": f"high_{sensor_name}",
+                "value": value,
+                "threshold": sensor_max,
+                "threshold_type": "max",
+                "timestamp": now_utc_iso()
+            }
+        
+        return None
+
     def generate_alerts(self, sensor_data):
         device_id = sensor_data.get("device_id")
         if not device_id:
             return []
 
         alerts = []
-        temperature = sensor_data.get("temperature")
-        soil_moisture = sensor_data.get("soil_moisture")
-        humidity = sensor_data.get("humidity")
+        sensors_to_check = ["temperature", "soil_moisture", "humidity"]
+
+        for sensor in sensors_to_check:
+            value = sensor_data.get(sensor)
+            alert = self._check_sensor_limit(device_id, sensor, value)
+            if alert:
+                alerts.append(alert)
+        
+        return alerts
 
         # Temperature Checks
         if temperature is not None:
@@ -57,55 +94,11 @@ class AlertRuleEngine:
                     "timestamp": now_utc_iso()
                 })
 
-        # Soil Moisture Checks
-        if soil_moisture is not None:
-            soil_min = self.thresholds.get("soil_moisture", {}).get("min")
-            soil_max = self.thresholds.get("soil_moisture", {}).get("max")
-
-            if soil_min is not None and soil_moisture < soil_min:
-                alerts.append({
-                    "device_id": device_id,
-                    "alert": "low_soil_moisture",
-                    "value": soil_moisture,
-                    "threshold": soil_min,
-                    "threshold_type": "min",
-                    "timestamp": now_utc_iso()
-                })
-            elif soil_max is not None and soil_moisture > soil_max:
-                alerts.append({
-                    "device_id": device_id,
-                    "alert": "high_soil_moisture",
-                    "value": soil_moisture,
-                    "threshold": soil_max,
-                    "threshold_type": "max",
-                    "timestamp": now_utc_iso()
-                })
-
-        # Humidity Checks
-        if humidity is not None:
-            hum_min = self.thresholds.get("humidity", {}).get("min")
-            hum_max = self.thresholds.get("humidity", {}).get("max")
-
-            if hum_min is not None and humidity < hum_min:
-                alerts.append({
-                    "device_id": device_id,
-                    "alert": "low_humidity",
-                    "value": humidity,
-                    "threshold": hum_min,
-                    "threshold_type": "min",
-                    "timestamp": now_utc_iso()
-                })
-            elif hum_max is not None and humidity > hum_max:
-                alerts.append({
-                    "device_id": device_id,
-                    "alert": "high_humidity",
-                    "value": humidity,
-                    "threshold": hum_max,
-                    "threshold_type": "max",
-                    "timestamp": now_utc_iso()
-                })
-
-        return alerts
+    def evaluate_device_status(self, sensor_data):
+        alerts = self.generate_alerts(sensor_data)
+        if len(alerts) > 0:
+            return "warning"
+        return "active"
 
 
 # =============================================================================
@@ -232,6 +225,11 @@ class AlertGeneratorService:
 
             # Run Rule Engine
             generated_alerts = self.rule_engine.generate_alerts(sensor_data)
+            sensor_data["status"] = "warning" if len(generated_alerts) > 0 else "normal"
+
+            with self.lock:
+                self.latest_data[device_id] = sensor_data
+            
             for alert in generated_alerts:
                 self.publish_alert(alert)
 
