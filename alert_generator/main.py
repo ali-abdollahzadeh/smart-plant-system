@@ -124,6 +124,7 @@ class AlertGeneratorService:
         
         self.catalog_url = os.environ.get("CATALOG_URL", "http://catalogue:8000")
         self.registration_retry_delay = int(os.environ.get("REGISTRATION_RETRY_DELAY", 5))
+        self.threshold_refresh_interval = int(os.environ.get("THRESHOLD_REFRESH_INTERVAL", 60))
         self.thingspeak_adapter_url = os.environ.get("THINGSPEAK_ADAPTER_URL", "http://thingspeak-adapter:8080")
 
         # Load file thresholds and defaults
@@ -136,7 +137,8 @@ class AlertGeneratorService:
         self.lock = threading.RLock()
         self.latest_data = {}
         self.alerts = []
-        self.rule_engine = AlertRuleEngine(self.config["thresholds"])
+        initial_thresholds = self.config.get("thresholds", {})
+        self.rule_engine = AlertRuleEngine(initial_thresholds)
 
         # MQTT Client Setup
         self.mqtt_connected = False
@@ -187,6 +189,45 @@ class AlertGeneratorService:
         while not self.register_service():
             print(f"[CATALOGUE] Retrying registration in {self.registration_retry_delay} seconds...")
             time.sleep(self.registration_retry_delay)
+
+    def load_thresholds_from_catalogue(self):
+        url = f"{self.catalog_url}/config"
+        try:
+            response = requests.get(url, timeout=5)
+            if response.status_code == 200:
+                config_data = response.json()
+                thresholds = config_data.get("thresholds")
+                if thresholds is None and "config" in config_data:
+                    thresholds = config_data["config"].get("thresholds")
+
+                if isinstance(thresholds, dict):
+                    with self.lock:
+                        self.rule_engine.thresholds = thresholds
+                    print(f"[CATALOGUE] Thresholds successfully loaded from Catalogue: {thresholds}")
+                    return True
+                else:
+                    cfg = config_data.get("config", config_data)
+                    mapped_thresholds = {
+                        "temperature": {"max": float(cfg.get("temperature_threshold", 35))},
+                        "soil_moisture": {"min": float(cfg.get("moisture_threshold", 30))},
+                        "humidity": {"max": float(cfg.get("humidity_threshold", 70))}
+                    }
+                    with self.lock:
+                        self.rule_engine.thresholds = mapped_thresholds
+                    print(f"[CATALOGUE] Thresholds mapped from Catalogue: {mapped_thresholds}")
+                    return True
+        except requests.RequestException as error:
+            print(f"[CATALOGUE] Threshold request error: {error}")
+        except Exception as error:
+            print(f"[CATALOGUE] Threshold parsing error: {error}")
+
+        return False
+
+    def threshold_refresh_task(self):
+        while True:
+            loaded = self.load_thresholds_from_catalogue()
+            delay = self.threshold_refresh_interval if loaded else self.registration_retry_delay
+            time.sleep(delay)
 
     # -------------------------------------------------------------------------
     # MQTT Callbacks & Actions
@@ -399,6 +440,7 @@ class AlertGeneratorService:
     # -------------------------------------------------------------------------
     def start(self):
         threading.Thread(target=self.registration_task, daemon=True, name="registration-thread").start()
+        threading.Thread(target=self.threshold_refresh_task, daemon=True, name="threshold-refresh-thread").start()
         threading.Thread(target=self.mqtt_loop, daemon=True, name="mqtt-thread").start()
 
     def stop(self):

@@ -1,23 +1,9 @@
 {
-    "mqtt": {
-      "sensor_topic": "smartplant/sensors/#",
-      "alert_topic_base": "smartplant/alerts"
-    },
-    "thresholds": {
-      "temperature": {
-        "min": 18,
-        "max": 30
-      },
-      "soil_moisture": {
-        "min": 30,
-        "max": 80
-      },
-      "humidity": {
-        "min": 40,
-        "max": 80
-      }
-    },
-    "report": {
-      "default_results": 20
-    }
+  "mqtt": {
+    "sensor_topic": "smartplant/sensors/#",
+    "alert_topic_base": "smartplant/alerts"
+  },
+  "report": {
+    "default_results": 20
   }
+}
