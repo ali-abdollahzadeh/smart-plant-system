@@ -10,320 +10,180 @@ import paho.mqtt.client as mqtt
 import requests
 
 
-class AnalyticsControlService(object):
+class AnalyticsControlService:
     exposed = True
 
+    SENSOR_RULES = {
+        "temperature": {
+            "low_command": "temperature_low",
+            "high_command": "temperature_high",
+            "normal_command": "temperature_normal",
+        },
+        "soil_moisture": {
+            "low_command": "soil_moisture_low",
+            "high_command": "soil_moisture_high",
+            "normal_command": "soil_moisture_normal",
+        },
+        "humidity": {
+            "low_command": "humidity_low",
+            "high_command": "humidity_high",
+            "normal_command": "humidity_normal",
+        },
+    }
+
     def __init__(self):
-        # --------------------------------------------------
-        # Runtime configuration
-        # --------------------------------------------------
-        self.service_id = os.environ.get(
-            "SERVICE_ID",
-            "analytics-control"
-        )
-        self.service_name = os.environ.get(
-            "SERVICE_NAME",
-            "Analytics Control Service"
-        )
-        self.service_type = os.environ.get(
-            "SERVICE_TYPE",
-            "analytics_control"
-        )
-        self.service_host = os.environ.get(
-            "SERVICE_HOST",
-            "0.0.0.0"
-        )
-        self.service_port = int(
-            os.environ.get("SERVICE_PORT", 8090)
-        )
+        self.service_id = os.environ.get("SERVICE_ID", "analytics")
+        self.service_name = os.environ.get("SERVICE_NAME", "Analytics Service")
+        self.service_type = os.environ.get("SERVICE_TYPE", "analytics")
+        self.service_host = os.environ.get("SERVICE_HOST", "0.0.0.0")
+        self.service_port = int(os.environ.get("SERVICE_PORT", 8090))
 
         self.catalog_url = os.environ.get(
-            "CATALOG_URL",
-            "http://catalogue:8000"
+            "CATALOG_URL", "http://catalogue:8000"
         ).rstrip("/")
-
         self.registration_retry_delay = int(
-            os.environ.get(
-                "REGISTRATION_RETRY_DELAY",
-                5
-            )
+            os.environ.get("REGISTRATION_RETRY_DELAY", 5)
         )
-
         self.threshold_refresh_interval = int(
-            os.environ.get(
-                "THRESHOLD_REFRESH_INTERVAL",
-                60
-            )
+            os.environ.get("THRESHOLD_REFRESH_INTERVAL", 60)
         )
 
-        self.mqtt_broker = os.environ.get(
-            "MQTT_BROKER",
-            "mosquitto"
-        )
-        self.mqtt_port = int(
-            os.environ.get("MQTT_PORT", 1883)
-        )
+        self.mqtt_broker = os.environ.get("MQTT_BROKER", "mosquitto")
+        self.mqtt_port = int(os.environ.get("MQTT_PORT", 1883))
+        self.config_file = os.environ.get("CONFIG_FILE", "/app/config.json")
 
-        self.config_file = os.environ.get(
-            "CONFIG_FILE",
-            "/app/config.json"
-        )
-
-        # --------------------------------------------------
-        # Load local configuration
-        # Only MQTT topics and commands are stored locally.
-        # Thresholds are loaded from Catalogue.
-        # --------------------------------------------------
-        with open(
-            self.config_file,
-            "r",
-            encoding="utf-8"
-        ) as file:
+        with open(self.config_file, "r", encoding="utf-8") as file:
             self.config = json.load(file)
 
-        self.validate_local_config()
+        self._validate_local_config()
 
-        # --------------------------------------------------
-        # Shared service state
-        # --------------------------------------------------
         self.lock = threading.RLock()
-
         self.latest_data = {}
         self.command_history = []
+        self.analysis_history = []
         self.last_command_by_device = {}
 
         self.thresholds = None
         self.thresholds_updated_at = None
         self.thresholds_ready = threading.Event()
 
-        # --------------------------------------------------
-        # MQTT client
-        # --------------------------------------------------
         self.mqtt_connected = False
-
         self.mqtt_client = mqtt.Client(
             client_id=self.service_id,
-            clean_session=True
+            clean_session=True,
         )
-
         self.mqtt_client.on_connect = self.on_mqtt_connect
-        self.mqtt_client.on_disconnect = (
-            self.on_mqtt_disconnect
-        )
+        self.mqtt_client.on_disconnect = self.on_mqtt_disconnect
         self.mqtt_client.on_message = self.on_mqtt_message
 
-    # --------------------------------------------------
-    # General helpers
-    # --------------------------------------------------
     def now_utc_iso(self):
-        return (
-            datetime.now(timezone.utc)
-            .replace(microsecond=0)
-            .isoformat()
-        )
+        return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
     def sensor_topic(self):
         return self.config["mqtt"]["sensor_topic"]
 
-    def command_topic_base(self):
-        return self.config["mqtt"][
-            "command_topic_base"
-        ]
-
     def command_topic(self, device_id):
-        return (
-            f"{self.command_topic_base()}/{device_id}"
+        return f'{self.config["mqtt"]["command_topic_base"]}/{device_id}'
+
+    def analysis_topic(self, device_id):
+        return f'{self.config["mqtt"]["analysis_topic_base"]}/{device_id}'
+
+    def _validate_local_config(self):
+        mqtt_config = self.config.get("mqtt", {})
+        commands = self.config.get("commands", {})
+
+        required_mqtt = (
+            "sensor_topic",
+            "command_topic_base",
+            "analysis_topic_base",
         )
-
-    def validate_local_config(self):
-        mqtt_config = self.config.get("mqtt")
-        commands = self.config.get("commands")
-
-        if not isinstance(mqtt_config, dict):
+        missing_mqtt = [key for key in required_mqtt if not mqtt_config.get(key)]
+        if missing_mqtt:
             raise ValueError(
-                "Missing 'mqtt' section in config.json"
+                "Missing MQTT configuration: " + ", ".join(missing_mqtt)
             )
 
-        if not mqtt_config.get("sensor_topic"):
-            raise ValueError(
-                "Missing mqtt.sensor_topic in config.json"
-            )
-
-        if not mqtt_config.get("command_topic_base"):
-            raise ValueError(
-                "Missing mqtt.command_topic_base "
-                "in config.json"
-            )
-
-        if not isinstance(commands, dict):
-            raise ValueError(
-                "Missing 'commands' section in config.json"
-            )
-
-        required_commands = [
-            "temperature_low",
-            "temperature_high",
-            "temperature_normal",
-            "soil_moisture_low",
-            "soil_moisture_high",
-            "soil_moisture_normal",
-            "humidity_low",
-            "humidity_high",
-            "humidity_normal"
-        ]
+        required_commands = []
+        for rule in self.SENSOR_RULES.values():
+            required_commands.extend(rule.values())
 
         missing_commands = [
-            name
-            for name in required_commands
-            if not commands.get(name)
+            key for key in required_commands if not commands.get(key)
         ]
-
         if missing_commands:
             raise ValueError(
-                "Missing commands in config.json: "
+                "Missing command configuration: "
                 + ", ".join(missing_commands)
             )
 
-    # --------------------------------------------------
-    # Catalogue registration
-    # --------------------------------------------------
+    # ------------------------------------------------------------------
+    # Catalogue
+    # ------------------------------------------------------------------
     def registration_payload(self):
         return {
             "id": self.service_id,
             "name": self.service_name,
             "type": self.service_type,
-            "endpoint": (
-                f"http://{self.service_id}:"
-                f"{self.service_port}"
-            ),
-            "status": "active"
+            "endpoint": f"http://{self.service_id}:{self.service_port}",
+            "status": "active",
         }
 
     def register_service(self):
-        payload = self.registration_payload()
-
         try:
             response = requests.post(
                 f"{self.catalog_url}/services",
-                json=payload,
-                timeout=5
+                json=self.registration_payload(),
+                timeout=5,
             )
-
             if response.status_code in (200, 201):
-                try:
-                    result = response.json()
-                    action = result.get("action")
-                except ValueError:
-                    action = None
-
-                if action == "updated":
-                    print(
-                        "[CATALOGUE] Service already "
-                        "registered; information refreshed"
-                    )
-                else:
-                    print(
-                        "[CATALOGUE] Service registered: "
-                        f"{payload}"
-                    )
-
+                print("[CATALOGUE] Analytics service registered/refreshed")
                 return True
 
             print(
                 "[CATALOGUE] Registration failed: "
-                f"{response.status_code} "
-                f"{response.text}"
+                f"{response.status_code} {response.text}"
             )
-
         except requests.RequestException as error:
-            print(
-                "[CATALOGUE] Registration error: "
-                f"{error}"
-            )
+            print(f"[CATALOGUE] Registration error: {error}")
 
         return False
 
-    def registration_startup_task(self):
+    def registration_task(self):
         while not self.register_service():
-            print(
-                "[CATALOGUE] Retrying registration in "
-                f"{self.registration_retry_delay} "
-                "seconds..."
-            )
-            time.sleep(
-                self.registration_retry_delay
-            )
+            time.sleep(self.registration_retry_delay)
 
-    # --------------------------------------------------
-    # Threshold configuration from Catalogue
-    # --------------------------------------------------
-    def extract_thresholds_from_response(
-        self,
-        response_data
-    ):
+    def _extract_thresholds(self, response_data):
         if not isinstance(response_data, dict):
-            raise ValueError(
-                "Catalogue config response must be "
-                "a JSON object"
-            )
+            raise ValueError("Catalogue config response must be an object")
 
-        # Supports both possible response forms:
-        # 1. GET /config -> {"thresholds": {...}}
-        # 2. GET /config -> {"config": {"thresholds": {...}}}
-        if isinstance(
-            response_data.get("config"),
-            dict
-        ):
-            config_data = response_data["config"]
-        else:
-            config_data = response_data
-
+        config_data = response_data.get("config", response_data)
         thresholds = config_data.get("thresholds")
 
         if not isinstance(thresholds, dict):
-            raise ValueError(
-                "Catalogue config does not contain "
-                "'thresholds'"
-            )
-
-        return thresholds
-
-    def validate_thresholds(self, thresholds):
-        required_sensors = [
-            "temperature",
-            "soil_moisture",
-            "humidity"
-        ]
+            raise ValueError("Catalogue config has no thresholds object")
 
         validated = {}
-
-        for sensor_name in required_sensors:
+        for sensor_name in self.SENSOR_RULES:
             limits = thresholds.get(sensor_name)
-
             if not isinstance(limits, dict):
-                raise ValueError(
-                    f"Missing thresholds for "
-                    f"'{sensor_name}'"
-                )
+                raise ValueError(f"Missing thresholds for {sensor_name}")
 
             try:
                 threshold_min = float(limits["min"])
                 threshold_max = float(limits["max"])
-            except (KeyError, TypeError, ValueError):
+            except (KeyError, TypeError, ValueError) as error:
                 raise ValueError(
-                    f"Invalid min/max thresholds for "
-                    f"'{sensor_name}'"
-                )
+                    f"Invalid thresholds for {sensor_name}"
+                ) from error
 
             if threshold_min > threshold_max:
                 raise ValueError(
-                    f"Minimum threshold is greater "
-                    f"than maximum for '{sensor_name}'"
+                    f"Minimum exceeds maximum for {sensor_name}"
                 )
 
             validated[sensor_name] = {
                 "min": threshold_min,
-                "max": threshold_max
+                "max": threshold_max,
             }
 
         return validated
@@ -332,209 +192,96 @@ class AnalyticsControlService(object):
         try:
             response = requests.get(
                 f"{self.catalog_url}/config",
-                timeout=5
+                timeout=5,
             )
             response.raise_for_status()
-
-            response_data = response.json()
-
-            thresholds = (
-                self.extract_thresholds_from_response(
-                    response_data
-                )
-            )
-
-            validated_thresholds = (
-                self.validate_thresholds(
-                    thresholds
-                )
-            )
+            new_thresholds = self._extract_thresholds(response.json())
 
             with self.lock:
-                changed = (
-                    self.thresholds
-                    != validated_thresholds
-                )
-
-                self.thresholds = (
-                    validated_thresholds
-                )
-                self.thresholds_updated_at = (
-                    self.now_utc_iso()
-                )
+                changed = new_thresholds != self.thresholds
+                self.thresholds = new_thresholds
+                self.thresholds_updated_at = self.now_utc_iso()
                 self.thresholds_ready.set()
-
                 latest_snapshot = [
-                    dict(sensor_data)
-                    for sensor_data
-                    in self.latest_data.values()
+                    copy.deepcopy(item)
+                    for item in self.latest_data.values()
                 ]
 
             if changed:
                 print(
-                    "[CATALOGUE] Thresholds loaded "
-                    f"from {self.catalog_url}/config: "
-                    f"{validated_thresholds}"
+                    "[CATALOGUE] Thresholds loaded/updated: "
+                    f"{new_thresholds}"
                 )
-
-                # Re-evaluate the latest known values when
-                # the central thresholds change.
                 for sensor_data in latest_snapshot:
                     self.evaluate_controls(sensor_data)
             else:
-                print(
-                    "[CATALOGUE] Thresholds refreshed; "
-                    "no changes detected"
-                )
+                print("[CATALOGUE] Thresholds refreshed; no changes")
 
             return True
 
-        except requests.RequestException as error:
-            print(
-                "[CATALOGUE] Threshold request error: "
-                f"{error}"
-            )
-
-        except (
-            ValueError,
-            json.JSONDecodeError
-        ) as error:
-            print(
-                "[CATALOGUE] Invalid threshold "
-                f"configuration: {error}"
-            )
-
-        return False
+        except (requests.RequestException, ValueError, json.JSONDecodeError) as error:
+            print(f"[CATALOGUE] Threshold load error: {error}")
+            return False
 
     def threshold_refresh_task(self):
         while True:
-            loaded = (
-                self.load_thresholds_from_catalogue()
+            loaded = self.load_thresholds_from_catalogue()
+            delay = (
+                self.threshold_refresh_interval
+                if loaded
+                else self.registration_retry_delay
             )
-
-            if not loaded:
-                print(
-                    "[CATALOGUE] Thresholds are not "
-                    "available. Analytics will not "
-                    "evaluate sensor rules until they "
-                    "are loaded."
-                )
-                delay = (
-                    self.registration_retry_delay
-                )
-            else:
-                delay = (
-                    self.threshold_refresh_interval
-                )
-
             time.sleep(delay)
 
     def get_thresholds_snapshot(self):
         with self.lock:
-            if self.thresholds is None:
-                return None
-
             return copy.deepcopy(self.thresholds)
 
-    # --------------------------------------------------
-    # MQTT callbacks
-    # --------------------------------------------------
-    def on_mqtt_connect(
-        self,
-        client,
-        userdata,
-        flags,
-        rc
-    ):
+    # ------------------------------------------------------------------
+    # MQTT
+    # ------------------------------------------------------------------
+    def on_mqtt_connect(self, client, userdata, flags, rc):
         if rc == 0:
             self.mqtt_connected = True
-
-            client.subscribe(
-                self.sensor_topic(),
-                qos=2
-            )
-
+            client.subscribe(self.sensor_topic(), qos=2)
             print(
-                "[MQTT] Connected to "
-                f"{self.mqtt_broker}:"
-                f"{self.mqtt_port}"
+                f"[MQTT] Connected to {self.mqtt_broker}:{self.mqtt_port}"
             )
-            print(
-                "[MQTT] Subscribed to "
-                f"{self.sensor_topic()}"
-            )
-
+            print(f"[MQTT] Subscribed to {self.sensor_topic()}")
         else:
             self.mqtt_connected = False
-            print(
-                "[MQTT] Connection failed "
-                f"with rc={rc}"
-            )
+            print(f"[MQTT] Connection failed with rc={rc}")
 
-    def on_mqtt_disconnect(
-        self,
-        client,
-        userdata,
-        rc
-    ):
+    def on_mqtt_disconnect(self, client, userdata, rc):
         self.mqtt_connected = False
-        print(
-            f"[MQTT] Disconnected with rc={rc}"
-        )
+        print(f"[MQTT] Disconnected with rc={rc}")
 
-    def on_mqtt_message(
-        self,
-        client,
-        userdata,
-        message
-    ):
+    def on_mqtt_message(self, client, userdata, message):
         try:
-            payload = message.payload.decode(
-                "utf-8"
+            sensor_data = json.loads(
+                message.payload.decode("utf-8")
             )
-            sensor_data = json.loads(payload)
-
-            sensor_data["_mqtt_topic"] = (
-                message.topic
-            )
-            sensor_data["_received_at"] = (
-                self.now_utc_iso()
-            )
-
-            device_id = sensor_data.get(
-                "device_id"
-            )
-
+            device_id = sensor_data.get("device_id")
             if not device_id:
-                print(
-                    "[MQTT] Missing device_id "
-                    "in payload"
-                )
+                print("[MQTT] Missing device_id in sensor payload")
                 return
 
+            sensor_data["_mqtt_topic"] = message.topic
+            sensor_data["_received_at"] = self.now_utc_iso()
+
             with self.lock:
-                self.latest_data[device_id] = (
-                    sensor_data
-                )
+                self.latest_data[device_id] = sensor_data
 
             print(
-                "[MQTT] Received from "
+                f"[MQTT] Sensor data received from "
                 f"{message.topic}: {sensor_data}"
             )
-
             self.evaluate_controls(sensor_data)
 
         except json.JSONDecodeError:
-            print(
-                "[MQTT] Invalid JSON payload "
-                "received"
-            )
-
+            print("[MQTT] Invalid sensor JSON")
         except Exception as error:
-            print(
-                "[MQTT] Processing error: "
-                f"{error}"
-            )
+            print(f"[MQTT] Sensor processing error: {error}")
 
     def mqtt_loop(self):
         while True:
@@ -542,433 +289,430 @@ class AnalyticsControlService(object):
                 self.mqtt_client.connect(
                     self.mqtt_broker,
                     self.mqtt_port,
-                    keepalive=60
+                    keepalive=60,
                 )
-
                 self.mqtt_client.loop_forever()
-
             except Exception as error:
                 self.mqtt_connected = False
-                print(
-                    "[MQTT] Connection error: "
-                    f"{error}"
-                )
+                print(f"[MQTT] Connection error: {error}")
                 time.sleep(5)
 
-    # --------------------------------------------------
-    # Command history helpers
-    # --------------------------------------------------
-    def get_last_command(
+    def _publish_json(self, topic, payload):
+        if not self.mqtt_connected:
+            print(f"[MQTT] Cannot publish to {topic}: disconnected")
+            return False
+
+        try:
+            info = self.mqtt_client.publish(
+                topic,
+                json.dumps(payload),
+                qos=2,
+            )
+            info.wait_for_publish()
+            return info.rc == mqtt.MQTT_ERR_SUCCESS
+        except Exception as error:
+            print(f"[MQTT] Publish error on {topic}: {error}")
+            return False
+
+    def publish_analysis(self, payload):
+        topic = self.analysis_topic(payload["device_id"])
+
+        if self._publish_json(topic, payload):
+            with self.lock:
+                self.analysis_history.append(payload)
+                self.analysis_history = self.analysis_history[-500:]
+
+            print(
+                f"[MQTT] Published analysis to {topic}: {payload}"
+            )
+
+    def publish_command(
         self,
         device_id,
-        sensor_type
+        sensor_type,
+        command,
+        reason,
     ):
         with self.lock:
-            return (
+            last_command = (
                 self.last_command_by_device
                 .get(device_id, {})
                 .get(sensor_type)
             )
 
-    def save_command(
-        self,
-        device_id,
-        sensor_type,
-        payload
-    ):
-        with self.lock:
-            self.command_history.append(payload)
-
-            if len(self.command_history) > 200:
-                self.command_history = (
-                    self.command_history[-200:]
-                )
-
-            if (
-                device_id
-                not in self.last_command_by_device
-            ):
-                self.last_command_by_device[
-                    device_id
-                ] = {}
-
-            self.last_command_by_device[
-                device_id
-            ][sensor_type] = payload["command"]
-
-    # --------------------------------------------------
-    # MQTT command publishing
-    # --------------------------------------------------
-    def publish_command(
-        self,
-        device_id,
-        command,
-        reason,
-        sensor_type
-    ):
-        last_command = self.get_last_command(
-            device_id,
-            sensor_type
-        )
-
         if last_command == command:
-            return
-
-        if not self.mqtt_connected:
-            print(
-                "[MQTT] Cannot publish command "
-                "because MQTT is not connected"
-            )
             return
 
         payload = {
             "device_id": device_id,
+            "sensor_type": sensor_type,
             "command": command,
             "reason": reason,
-            "sensor_type": sensor_type,
-            "timestamp": self.now_utc_iso()
+            "timestamp": self.now_utc_iso(),
         }
-
         topic = self.command_topic(device_id)
 
-        try:
-            information = (
-                self.mqtt_client.publish(
-                    topic,
-                    json.dumps(payload),
-                    qos=2
-                )
-            )
+        if self._publish_json(topic, payload):
+            with self.lock:
+                self.command_history.append(payload)
+                self.command_history = self.command_history[-200:]
+                self.last_command_by_device.setdefault(
+                    device_id, {}
+                )[sensor_type] = command
 
-            information.wait_for_publish()
-
-            if (
-                information.rc
-                == mqtt.MQTT_ERR_SUCCESS
-            ):
-                self.save_command(
-                    device_id,
-                    sensor_type,
-                    payload
-                )
-
-                print(
-                    "[MQTT] Published command "
-                    f"to {topic}: {payload}"
-                )
-
-            else:
-                print(
-                    "[MQTT] Publish failed "
-                    f"with rc={information.rc}"
-                )
-
-        except Exception as error:
             print(
-                "[MQTT] Publish command error: "
-                f"{error}"
+                f"[MQTT] Published command to {topic}: {payload}"
             )
 
-    # --------------------------------------------------
+    # ------------------------------------------------------------------
     # Rule engine
-    # --------------------------------------------------
-    def evaluate_sensor_rule(
+    # ------------------------------------------------------------------
+    def evaluate_sensor(
         self,
         device_id,
         sensor_type,
-        value,
-        threshold_min,
-        threshold_max,
-        low_command,
-        high_command,
-        normal_command,
-        low_reason,
-        high_reason,
-        normal_reason
+        raw_value,
+        limits,
     ):
-        if value is None:
+        if raw_value is None:
             return
 
         try:
-            value = float(value)
+            value = float(raw_value)
         except (TypeError, ValueError):
             print(
-                f"[RULES] Invalid {sensor_type} "
-                f"value for {device_id}: {value}"
+                f"[RULES] Invalid {sensor_type} value "
+                f"for {device_id}: {raw_value}"
             )
             return
 
+        threshold_min = limits["min"]
+        threshold_max = limits["max"]
+
         if value < threshold_min:
-            self.publish_command(
-                device_id,
-                low_command,
-                low_reason,
-                sensor_type
-            )
-
+            state = "low"
         elif value > threshold_max:
-            self.publish_command(
-                device_id,
-                high_command,
-                high_reason,
-                sensor_type
-            )
-
+            state = "high"
         else:
-            self.publish_command(
-                device_id,
-                normal_command,
-                normal_reason,
-                sensor_type
-            )
+            state = "normal"
+
+        command_key = self.SENSOR_RULES[sensor_type][
+            f"{state}_command"
+        ]
+        command = self.config["commands"][command_key]
+        reason = f"{sensor_type}_{state}"
+
+        analysis_payload = {
+            "device_id": device_id,
+            "sensor_type": sensor_type,
+            "value": value,
+            "state": state,
+            "threshold_min": threshold_min,
+            "threshold_max": threshold_max,
+            "reason": reason,
+            "timestamp": self.now_utc_iso(),
+        }
+
+        # Alert Generator consumes this.
+        self.publish_analysis(analysis_payload)
+
+        # Raspberry Pi consumes this.
+        self.publish_command(
+            device_id,
+            sensor_type,
+            command,
+            reason,
+        )
 
     def evaluate_controls(self, sensor_data):
         thresholds = self.get_thresholds_snapshot()
 
         if thresholds is None:
             print(
-                "[RULES] Thresholds have not been "
-                "loaded from Catalogue yet; "
-                "sensor evaluation skipped"
+                "[RULES] Thresholds are not loaded; "
+                "evaluation skipped"
             )
             return
 
         device_id = sensor_data["device_id"]
-        commands = self.config["commands"]
 
-        self.evaluate_sensor_rule(
-            device_id,
-            "temperature",
-            sensor_data.get("temperature"),
-            thresholds["temperature"]["min"],
-            thresholds["temperature"]["max"],
-            commands["temperature_low"],
-            commands["temperature_high"],
-            commands["temperature_normal"],
-            "temperature_below_min_threshold",
-            "temperature_above_max_threshold",
-            "temperature_back_to_normal_range"
-        )
+        for sensor_type in self.SENSOR_RULES:
+            self.evaluate_sensor(
+                device_id,
+                sensor_type,
+                sensor_data.get(sensor_type),
+                thresholds[sensor_type],
+            )
 
-        self.evaluate_sensor_rule(
-            device_id,
-            "soil_moisture",
-            sensor_data.get("soil_moisture"),
-            thresholds["soil_moisture"]["min"],
-            thresholds["soil_moisture"]["max"],
-            commands["soil_moisture_low"],
-            commands["soil_moisture_high"],
-            commands["soil_moisture_normal"],
-            "soil_moisture_below_min_threshold",
-            "soil_moisture_above_max_threshold",
-            "soil_moisture_back_to_normal_range"
-        )
 
-        self.evaluate_sensor_rule(
-            device_id,
-            "humidity",
-            sensor_data.get("humidity"),
-            thresholds["humidity"]["min"],
-            thresholds["humidity"]["max"],
-            commands["humidity_low"],
-            commands["humidity_high"],
-            commands["humidity_normal"],
-            "humidity_below_min_threshold",
-            "humidity_above_max_threshold",
-            "humidity_back_to_normal_range"
-        )
+    # ------------------------------------------------------------------
+    # Catalogue device registry + live telemetry merge
+    # ------------------------------------------------------------------
+    def fetch_catalogue_devices(self):
+        """
+        Return all registered devices from Catalogue as a list.
 
-    # --------------------------------------------------
+        Supported Catalogue response forms:
+        1. {"count": 4, "devices": [{...}, {...}]}
+        2. {"devices": {"raspi-01": {...}, ...}}
+        3. [{...}, {...}]
+        """
+        try:
+            response = requests.get(
+                f"{self.catalog_url}/devices",
+                timeout=5,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+        except requests.RequestException as error:
+            raise cherrypy.HTTPError(
+                503,
+                f"Catalogue is unavailable: {error}",
+            )
+
+        except json.JSONDecodeError as error:
+            raise cherrypy.HTTPError(
+                502,
+                f"Catalogue returned invalid JSON: {error}",
+            )
+
+        if isinstance(data, list):
+            devices = data
+
+        elif isinstance(data, dict):
+            devices = data.get("devices", data)
+
+            if isinstance(devices, dict):
+                normalized = []
+
+                for device_id, device_data in devices.items():
+                    if isinstance(device_data, dict):
+                        item = copy.deepcopy(device_data)
+                        item.setdefault("id", device_id)
+                    else:
+                        item = {
+                            "id": device_id,
+                            "value": device_data,
+                        }
+
+                    normalized.append(item)
+
+                devices = normalized
+
+        else:
+            devices = []
+
+        if not isinstance(devices, list):
+            raise cherrypy.HTTPError(
+                502,
+                "Catalogue returned an unsupported devices format",
+            )
+
+        return [
+            copy.deepcopy(device)
+            for device in devices
+            if isinstance(device, dict)
+            and (device.get("id") or device.get("device_id"))
+        ]
+
+    def merged_registered_devices(self):
+        """
+        Merge Catalogue registry information with telemetry that
+        Analytics has received since its current start.
+        """
+        registered_devices = self.fetch_catalogue_devices()
+
+        with self.lock:
+            live_data = copy.deepcopy(self.latest_data)
+
+        merged = {}
+
+        for catalogue_device in registered_devices:
+            device_id = (
+                catalogue_device.get("id")
+                or catalogue_device.get("device_id")
+            )
+
+            latest = live_data.get(device_id)
+            merged[device_id] = {
+                "id": device_id,
+                "name": catalogue_device.get("name"),
+                "type": catalogue_device.get("type"),
+                "registered": True,
+                "catalogue_status": catalogue_device.get("status"),
+                "mqtt_topic": catalogue_device.get("mqtt_topic"),
+                "command_topic": catalogue_device.get("command_topic"),
+                "telemetry_received": latest is not None,
+                "latest_data": latest,
+                "last_seen": (
+                    latest.get("_received_at")
+                    if latest is not None
+                    else None
+                ),
+            }
+
+        # Keep unexpected publishers visible even when they are not
+        # registered in Catalogue.
+        for device_id, latest in live_data.items():
+            if device_id not in merged:
+                merged[device_id] = {
+                    "id": device_id,
+                    "name": None,
+                    "type": None,
+                    "registered": False,
+                    "catalogue_status": None,
+                    "mqtt_topic": None,
+                    "command_topic": None,
+                    "telemetry_received": True,
+                    "latest_data": latest,
+                    "last_seen": latest.get("_received_at"),
+                }
+
+        return merged
+
+    # ------------------------------------------------------------------
     # REST API
-    # --------------------------------------------------
+    # ------------------------------------------------------------------
     @cherrypy.tools.json_out()
     def GET(self, *path, **query):
-        # GET /
-        if len(path) == 0:
+        if not path:
             return {
-                "message": (
-                    "Analytics Control Service "
-                    "is running"
-                ),
+                "message": "Analytics Service is running",
                 "endpoints": {
                     "health": "/health",
                     "devices": "/devices",
-                    "device_by_id": (
-                        "/devices/<device_id>"
-                    ),
                     "commands": "/commands",
+                    "analysis": "/analysis",
                     "rules": "/rules",
-                    "summary": "/summary"
-                }
+                    "summary": "/summary",
+                },
             }
 
         resource = path[0]
 
-        # GET /health
         if resource == "health":
-            if len(path) != 1:
-                raise cherrypy.HTTPError(
-                    404,
-                    "Invalid health path"
-                )
-
             return {
                 "status": (
                     "ok"
                     if self.thresholds_ready.is_set()
                     else "degraded"
                 ),
-                "timestamp": self.now_utc_iso(),
                 "service_id": self.service_id,
-                "mqtt_connected": (
-                    self.mqtt_connected
-                ),
-                "thresholds_loaded": (
-                    self.thresholds_ready.is_set()
-                ),
-                "thresholds_source": (
-                    f"{self.catalog_url}/config"
-                ),
-                "thresholds_updated_at": (
-                    self.thresholds_updated_at
-                )
+                "mqtt_connected": self.mqtt_connected,
+                "thresholds_loaded": self.thresholds_ready.is_set(),
+                "thresholds_updated_at": self.thresholds_updated_at,
+                "timestamp": self.now_utc_iso(),
             }
 
-        # GET /devices
-        # GET /devices/<device_id>
         if resource == "devices":
             if len(path) > 2:
                 raise cherrypy.HTTPError(
                     404,
-                    "Invalid devices path"
+                    "Invalid devices path",
                 )
 
-            with self.lock:
-                if len(path) == 2:
-                    device_id = path[1]
-                    device = self.latest_data.get(
-                        device_id
+            devices = self.merged_registered_devices()
+
+            if len(path) == 2:
+                device_id = path[1]
+                device = devices.get(device_id)
+
+                # A 404 now means the device is neither registered
+                # in Catalogue nor observed by Analytics.
+                if device is None:
+                    raise cherrypy.HTTPError(
+                        404,
+                        f"Device '{device_id}' is not registered "
+                        "and has not been observed",
                     )
 
-                    if device is None:
-                        raise cherrypy.HTTPError(
-                            404,
-                            f"Device '{device_id}' "
-                            "not found"
-                        )
-
-                    return dict(device)
-
-                devices = copy.deepcopy(
-                    self.latest_data
-                )
+                return device
 
             return {
                 "count": len(devices),
-                "devices": devices
+                "registered_count": sum(
+                    1
+                    for device in devices.values()
+                    if device["registered"]
+                ),
+                "telemetry_count": sum(
+                    1
+                    for device in devices.values()
+                    if device["telemetry_received"]
+                ),
+                "devices": devices,
             }
 
-        # GET /commands
         if resource == "commands":
-            if len(path) != 1:
-                raise cherrypy.HTTPError(
-                    404,
-                    "Invalid commands path"
-                )
-
             with self.lock:
-                commands = copy.deepcopy(
-                    self.command_history
-                )
-
+                commands = copy.deepcopy(self.command_history)
             return {
                 "count": len(commands),
-                "commands": commands
+                "commands": commands,
             }
 
-        # GET /rules
-        if resource == "rules":
-            if len(path) != 1:
-                raise cherrypy.HTTPError(
-                    404,
-                    "Invalid rules path"
-                )
-
+        if resource == "analysis":
+            with self.lock:
+                analysis = copy.deepcopy(self.analysis_history)
             return {
-                "thresholds": (
-                    self.get_thresholds_snapshot()
-                ),
-                "thresholds_source": (
-                    f"{self.catalog_url}/config"
-                ),
-                "thresholds_updated_at": (
-                    self.thresholds_updated_at
-                ),
+                "count": len(analysis),
+                "analysis": analysis,
+            }
+
+        if resource == "rules":
+            return {
+                "thresholds": self.get_thresholds_snapshot(),
+                "thresholds_source": f"{self.catalog_url}/config",
                 "commands": copy.deepcopy(
                     self.config["commands"]
-                )
+                ),
             }
 
-        # GET /summary
         if resource == "summary":
-            if len(path) != 1:
-                raise cherrypy.HTTPError(
-                    404,
-                    "Invalid summary path"
-                )
+            devices = self.merged_registered_devices()
 
             with self.lock:
-                devices_count = len(
-                    self.latest_data
-                )
-                commands_count = len(
-                    self.command_history
-                )
+                commands_count = len(self.command_history)
+                analysis_count = len(self.analysis_history)
 
             return {
-                "devices_count": devices_count,
-                "commands_count": commands_count,
-                "mqtt_connected": (
-                    self.mqtt_connected
+                "registered_devices_count": sum(
+                    1
+                    for device in devices.values()
+                    if device["registered"]
                 ),
+                "telemetry_devices_count": sum(
+                    1
+                    for device in devices.values()
+                    if device["telemetry_received"]
+                ),
+                "commands_count": commands_count,
+                "analysis_count": analysis_count,
+                "mqtt_connected": self.mqtt_connected,
                 "thresholds_loaded": (
                     self.thresholds_ready.is_set()
                 ),
-                "thresholds_updated_at": (
-                    self.thresholds_updated_at
-                ),
-                "last_update": self.now_utc_iso()
+                "last_update": self.now_utc_iso(),
             }
 
-        raise cherrypy.HTTPError(
-            404,
-            "Endpoint not found"
-        )
+        raise cherrypy.HTTPError(404, "Endpoint not found")
 
-    # --------------------------------------------------
-    # Start and stop
-    # --------------------------------------------------
     def start(self):
         threading.Thread(
-            target=self.registration_startup_task,
+            target=self.registration_task,
             daemon=True,
-            name=(
-                "catalogue-registration-thread"
-            )
+            name="registration-thread",
         ).start()
-
         threading.Thread(
             target=self.threshold_refresh_task,
             daemon=True,
-            name=(
-                "catalogue-threshold-thread"
-            )
+            name="threshold-thread",
         ).start()
-
         threading.Thread(
             target=self.mqtt_loop,
             daemon=True,
-            name="mqtt-thread"
+            name="mqtt-thread",
         ).start()
 
     def stop(self):
@@ -979,61 +723,40 @@ class AnalyticsControlService(object):
 
 
 if __name__ == "__main__":
-    analytics = AnalyticsControlService()
+    service = AnalyticsControlService()
 
+    print("[START] Analytics Service starting...")
+    print(f"[INFO] Sensor topic: {service.sensor_topic()}")
     print(
-        "[START] Analytics Control Service "
-        "starting..."
+        "[INFO] Analysis topic base: "
+        f'{service.config["mqtt"]["analysis_topic_base"]}'
     )
     print(
-        f"[INFO] Service ID: "
-        f"{analytics.service_id}"
-    )
-    print(
-        "[INFO] MQTT Broker: "
-        f"{analytics.mqtt_broker}:"
-        f"{analytics.mqtt_port}"
-    )
-    print(
-        "[INFO] Sensor Topic: "
-        f"{analytics.sensor_topic()}"
-    )
-    print(
-        "[INFO] Threshold source: "
-        f"{analytics.catalog_url}/config"
+        f"[INFO] Threshold source: "
+        f"{service.catalog_url}/config"
     )
 
-    analytics.start()
-
-    configuration = {
-        "/": {
-            "request.dispatch": (
-                cherrypy.dispatch.MethodDispatcher()
-            ),
-            "tools.sessions.on": True
-        }
-    }
+    service.start()
 
     cherrypy.tree.mount(
-        analytics,
+        service,
         "/",
-        configuration
+        {
+            "/": {
+                "request.dispatch": (
+                    cherrypy.dispatch.MethodDispatcher()
+                ),
+                "tools.sessions.on": True,
+            }
+        },
     )
-
-    cherrypy.config.update({
-        "server.socket_host": (
-            analytics.service_host
-        ),
-        "server.socket_port": (
-            analytics.service_port
-        ),
-        "log.screen": True
-    })
-
-    cherrypy.engine.subscribe(
-        "stop",
-        analytics.stop
+    cherrypy.config.update(
+        {
+            "server.socket_host": service.service_host,
+            "server.socket_port": service.service_port,
+            "log.screen": True,
+        }
     )
-
+    cherrypy.engine.subscribe("stop", service.stop)
     cherrypy.engine.start()
     cherrypy.engine.block()

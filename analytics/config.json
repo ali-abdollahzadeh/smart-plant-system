@@ -1,7 +1,8 @@
 {
     "mqtt": {
       "sensor_topic": "smartplant/sensors/#",
-      "command_topic_base": "smartplant/commands"
+      "command_topic_base": "smartplant/commands",
+      "analysis_topic_base": "smartplant/analysis"
     },
     "commands": {
       "temperature_low": "start_heating",
