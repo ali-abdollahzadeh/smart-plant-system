@@ -306,9 +306,10 @@ class AnalyticsControlService:
             info = self.mqtt_client.publish(
                 topic,
                 json.dumps(payload),
-                qos=2,
+                qos=1,
             )
-            info.wait_for_publish()
+
+            # Never block the Paho MQTT callback/network thread here.
             return info.rc == mqtt.MQTT_ERR_SUCCESS
         except Exception as error:
             print(f"[MQTT] Publish error on {topic}: {error}")
@@ -653,8 +654,37 @@ class AnalyticsControlService:
             }
 
         if resource == "analysis":
+            if len(path) > 2:
+                raise cherrypy.HTTPError(
+                    404,
+                    "Invalid analysis path",
+                )
+
             with self.lock:
                 analysis = copy.deepcopy(self.analysis_history)
+
+            # GET /analysis/<device_id>
+            if len(path) == 2:
+                device_id = path[1]
+                device_analysis = [
+                    item
+                    for item in analysis
+                    if item.get("device_id") == device_id
+                ]
+
+                if not device_analysis:
+                    raise cherrypy.HTTPError(
+                        404,
+                        f"No analysis found for device '{device_id}'",
+                    )
+
+                return {
+                    "device_id": device_id,
+                    "count": len(device_analysis),
+                    "analysis": device_analysis,
+                }
+
+            # GET /analysis
             return {
                 "count": len(analysis),
                 "analysis": analysis,
