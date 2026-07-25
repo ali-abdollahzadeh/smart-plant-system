@@ -28,31 +28,38 @@ class CatalogueWebService:
                     "mqtt_broker": "mosquitto",
                     "mqtt_port": 1883,
                     "sampling_interval": 60,
-                    "moisture_threshold": 30,
-                    "temperature_threshold": 35,
-                    "humidity_threshold": 70
+                    "thresholds": {
+                        "temperature": {
+                            "min": 18,
+                            "max": 30
+                        },
+                        "soil_moisture": {
+                            "min": 30,
+                            "max": 80
+                        },
+                        "humidity": {
+                            "min": 40,
+                            "max": 80
+                        }
+                    }
                 }
             }
 
-            file = open(self.catalogue_file, "w", encoding="utf-8")
-            json.dump(default_catalogue, file, indent=4)
-            file.close()
+            with open(self.catalogue_file, "w", encoding="utf-8") as file:
+                json.dump(default_catalogue, file, indent=4)
 
     def load_catalogue(self):
         """Read and return the complete catalogue."""
         try:
-            file = open(self.catalogue_file, "r", encoding="utf-8")
-            catalogue = json.load(file)
-            file.close()
-            return catalogue
+            with open(self.catalogue_file, "r", encoding="utf-8") as file:
+                return json.load(file)
         except (OSError, json.JSONDecodeError):
             return None
 
     def save_catalogue(self, catalogue):
         """Write the complete catalogue to the JSON file."""
-        file = open(self.catalogue_file, "w", encoding="utf-8")
-        json.dump(catalogue, file, indent=4)
-        file.close()
+        with open(self.catalogue_file, "w", encoding="utf-8") as file:
+            json.dump(catalogue, file, indent=4)
 
     # --------------------------------------------------
     # Helper methods

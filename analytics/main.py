@@ -149,8 +149,9 @@ class AnalyticsControlService:
         return False
 
     def registration_task(self):
-        while not self.register_service():
-            time.sleep(self.registration_retry_delay)
+        while True:
+            self.register_service()
+            time.sleep(60)
 
     def _extract_thresholds(self, response_data):
         if not isinstance(response_data, dict):
@@ -243,7 +244,7 @@ class AnalyticsControlService:
     def on_mqtt_connect(self, client, userdata, flags, rc):
         if rc == 0:
             self.mqtt_connected = True
-            client.subscribe(self.sensor_topic(), qos=2)
+            client.subscribe(self.sensor_topic(), qos=1)
             print(
                 f"[MQTT] Connected to {self.mqtt_broker}:{self.mqtt_port}"
             )
