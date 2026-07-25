@@ -1,6 +1,7 @@
 {
   "mqtt": {
     "sensor_topic": "smartplant/sensors/#",
+    "analysis_topic": "smartplant/analysis/#",
     "alert_topic_base": "smartplant/alerts"
   },
   "report": {

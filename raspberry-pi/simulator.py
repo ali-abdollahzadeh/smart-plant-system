@@ -15,7 +15,7 @@ class PlantSimulator:
         self.state_lock = threading.Lock()
         
         # Simulated environment state
-        self.soil_moisture_value = random.uniform(55.0, 70.0)
+        self.soil_moisture_value = random.uniform(25.0, 90.0)
         self.temperature_bias = 0.0
         self.humidity_bias = 0.0
         self.last_sensor_update = time.time()

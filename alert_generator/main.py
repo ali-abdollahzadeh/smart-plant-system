@@ -16,98 +16,12 @@ def now_utc_iso():
 
 
 # =============================================================================
-# 2. RULE ENGINE CLASS
-# =============================================================================
-class AlertRuleEngine:
-
-    def __init__(self, thresholds):
-        self.thresholds = thresholds
-
-
-    def _check_sensor_limit(self, device_id, sensor_name, value):
-        if value is None:
-            return None
-
-        limits = self.thresholds.get(sensor_name, {})
-        sensor_min = limits.get("min")
-        sensor_max = limits.get("max")
-
-        if sensor_min is not None and value < sensor_min:
-            return {
-                "device_id": device_id,
-                "alert": f"low_{sensor_name}",
-                "value": value,
-                "threshold": sensor_min,
-                "threshold_type": "min",
-                "timestamp": now_utc_iso()
-            }
-        
-        if sensor_max is not None and value > sensor_max:
-            return {
-                "device_id": device_id,
-                "alert": f"high_{sensor_name}",
-                "value": value,
-                "threshold": sensor_max,
-                "threshold_type": "max",
-                "timestamp": now_utc_iso()
-            }
-        
-        return None
-
-    def generate_alerts(self, sensor_data):
-        device_id = sensor_data.get("device_id")
-        if not device_id:
-            return []
-
-        alerts = []
-        sensors_to_check = ["temperature", "soil_moisture", "humidity"]
-
-        for sensor in sensors_to_check:
-            value = sensor_data.get(sensor)
-            alert = self._check_sensor_limit(device_id, sensor, value)
-            if alert:
-                alerts.append(alert)
-        
-        return alerts
-
-        # Temperature Checks
-        if temperature is not None:
-            temp_min = self.thresholds.get("temperature", {}).get("min")
-            temp_max = self.thresholds.get("temperature", {}).get("max")
-
-            if temp_min is not None and temperature < temp_min:
-                alerts.append({
-                    "device_id": device_id,
-                    "alert": "low_temperature",
-                    "value": temperature,
-                    "threshold": temp_min,
-                    "threshold_type": "min",
-                    "timestamp": now_utc_iso()
-                })
-            elif temp_max is not None and temperature > temp_max:
-                alerts.append({
-                    "device_id": device_id,
-                    "alert": "high_temperature",
-                    "value": temperature,
-                    "threshold": temp_max,
-                    "threshold_type": "max",
-                    "timestamp": now_utc_iso()
-                })
-
-    def evaluate_device_status(self, sensor_data):
-        alerts = self.generate_alerts(sensor_data)
-        if len(alerts) > 0:
-            return "warning"
-        return "active"
-
-
-# =============================================================================
-# 3. ALERT GENERATOR SERVICE (CHERRYPY + MQTT)
+# 2. ALERT GENERATOR SERVICE (CHERRYPY + MQTT)
 # =============================================================================
 class AlertGeneratorService:
     exposed = True
 
-    def __init__(self, id, sub_topic, pub_topic, broker, port, config_file="/app/config.json"):
+    def __init__(self, id, sub_topic, pub_topic, broker, port, config_file="/app/config.json", analysis_topic=None):
         # Explicit Professor-style parameters
         self.id = id
         self.sub_topic = sub_topic
@@ -124,21 +38,22 @@ class AlertGeneratorService:
         
         self.catalog_url = os.environ.get("CATALOG_URL", "http://catalogue:8000")
         self.registration_retry_delay = int(os.environ.get("REGISTRATION_RETRY_DELAY", 5))
-        self.threshold_refresh_interval = int(os.environ.get("THRESHOLD_REFRESH_INTERVAL", 60))
         self.thingspeak_adapter_url = os.environ.get("THINGSPEAK_ADAPTER_URL", "http://thingspeak-adapter:8080")
 
-        # Load file thresholds and defaults
+        # Load configuration file
         with open(self.config_file, "r", encoding="utf-8") as file:
             self.config = json.load(file)
 
+        self.analysis_topic = analysis_topic or os.environ.get(
+            "MQTT_ANALYSIS_TOPIC",
+            self.config.get("mqtt", {}).get("analysis_topic", "smartplant/analysis/#")
+        )
         self.default_results = self.config.get("report", {}).get("default_results", 20)
 
-        # State & Rule Engine Initialization
+        # State Initialization
         self.lock = threading.RLock()
         self.latest_data = {}
         self.alerts = []
-        initial_thresholds = self.config.get("thresholds", {})
-        self.rule_engine = AlertRuleEngine(initial_thresholds)
 
         # MQTT Client Setup
         self.mqtt_connected = False
@@ -190,54 +105,15 @@ class AlertGeneratorService:
             print(f"[CATALOGUE] Retrying registration in {self.registration_retry_delay} seconds...")
             time.sleep(self.registration_retry_delay)
 
-    def load_thresholds_from_catalogue(self):
-        url = f"{self.catalog_url}/config"
-        try:
-            response = requests.get(url, timeout=5)
-            if response.status_code == 200:
-                config_data = response.json()
-                thresholds = config_data.get("thresholds")
-                if thresholds is None and "config" in config_data:
-                    thresholds = config_data["config"].get("thresholds")
-
-                if isinstance(thresholds, dict):
-                    with self.lock:
-                        self.rule_engine.thresholds = thresholds
-                    print(f"[CATALOGUE] Thresholds successfully loaded from Catalogue: {thresholds}")
-                    return True
-                else:
-                    cfg = config_data.get("config", config_data)
-                    mapped_thresholds = {
-                        "temperature": {"max": float(cfg.get("temperature_threshold", 35))},
-                        "soil_moisture": {"min": float(cfg.get("moisture_threshold", 30))},
-                        "humidity": {"max": float(cfg.get("humidity_threshold", 70))}
-                    }
-                    with self.lock:
-                        self.rule_engine.thresholds = mapped_thresholds
-                    print(f"[CATALOGUE] Thresholds mapped from Catalogue: {mapped_thresholds}")
-                    return True
-        except requests.RequestException as error:
-            print(f"[CATALOGUE] Threshold request error: {error}")
-        except Exception as error:
-            print(f"[CATALOGUE] Threshold parsing error: {error}")
-
-        return False
-
-    def threshold_refresh_task(self):
-        while True:
-            loaded = self.load_thresholds_from_catalogue()
-            delay = self.threshold_refresh_interval if loaded else self.registration_retry_delay
-            time.sleep(delay)
-
     # -------------------------------------------------------------------------
     # MQTT Callbacks & Actions
     # -------------------------------------------------------------------------
     def on_mqtt_connect(self, client, userdata, flags, rc):
         if rc == 0:
             self.mqtt_connected = True
-            client.subscribe(self.sub_topic, qos=2)
+            client.subscribe([(self.sub_topic, 2), (self.analysis_topic, 2)])
             print(f"[MQTT] Connected to {self.broker}:{self.port}")
-            print(f"[MQTT] Subscribed to {self.sub_topic}")
+            print(f"[MQTT] Subscribed to {self.sub_topic} and {self.analysis_topic}")
         else:
             self.mqtt_connected = False
             print(f"[MQTT] Connection failed with rc={rc}")
@@ -248,36 +124,68 @@ class AlertGeneratorService:
 
     def on_mqtt_message(self, client, userdata, message):
         try:
-            payload = message.payload.decode("utf-8")
-            sensor_data = json.loads(payload)
+            payload_str = message.payload.decode("utf-8")
+            data = json.loads(payload_str)
+            topic = message.topic
 
-            sensor_data["_mqtt_topic"] = message.topic
-            sensor_data["_received_at"] = now_utc_iso()
-
-            device_id = sensor_data.get("device_id")
-            if not device_id:
-                print("[MQTT] Missing device_id in payload")
-                return
-
-            with self.lock:
-                self.latest_data[device_id] = sensor_data
-
-            print(f"[MQTT] Received from {message.topic}: {sensor_data}")
-
-            # Run Rule Engine
-            generated_alerts = self.rule_engine.generate_alerts(sensor_data)
-            sensor_data["status"] = "warning" if len(generated_alerts) > 0 else "normal"
-
-            with self.lock:
-                self.latest_data[device_id] = sensor_data
-            
-            for alert in generated_alerts:
-                self.publish_alert(alert)
+            # Determine message type by topic prefix
+            analysis_base = self.analysis_topic.rstrip("#").rstrip("+").rstrip("/")
+            if topic.startswith(analysis_base):
+                self.process_analysis_message(data)
+            else:
+                self.process_sensor_message(topic, data)
 
         except json.JSONDecodeError:
             print("[MQTT] Invalid JSON payload received")
         except Exception as error:
             print(f"[MQTT] Processing error: {error}")
+
+    def process_sensor_message(self, topic, sensor_data):
+        device_id = sensor_data.get("device_id")
+        if not device_id:
+            print("[MQTT] Missing device_id in sensor payload")
+            return
+
+        sensor_data["_mqtt_topic"] = topic
+        sensor_data["_received_at"] = now_utc_iso()
+
+        with self.lock:
+            self.latest_data[device_id] = sensor_data
+
+        print(f"[MQTT] Received sensor telemetry from {device_id}: {sensor_data}")
+
+    def process_analysis_message(self, analysis_data):
+        device_id = analysis_data.get("device_id")
+        sensor_type = analysis_data.get("sensor_type")
+        state = analysis_data.get("state")
+        value = analysis_data.get("value")
+
+        if not device_id or not sensor_type or not state:
+            return
+
+        # Update latest_data device status if known
+        with self.lock:
+            if device_id in self.latest_data:
+                self.latest_data[device_id]["status"] = "warning" if state in ("low", "high") else "normal"
+
+        # Only generate alerts for "low" or "high" threshold violations
+        if state not in ("low", "high"):
+            return
+
+        threshold = analysis_data.get("threshold_min") if state == "low" else analysis_data.get("threshold_max")
+        threshold_type = "min" if state == "low" else "max"
+
+        alert = {
+            "device_id": device_id,
+            "alert": f"{state}_{sensor_type}",
+            "value": value,
+            "threshold": threshold,
+            "threshold_type": threshold_type,
+            "timestamp": analysis_data.get("timestamp") or now_utc_iso()
+        }
+
+        print(f"[ANALYSIS] Triggering alert for {device_id}: {alert}")
+        self.publish_alert(alert)
 
     def mqtt_loop(self):
         while True:
@@ -301,8 +209,7 @@ class AlertGeneratorService:
         topic = f"{self.pub_topic}/{device_id}"
 
         try:
-            info = self.mqtt_client.publish(topic, json.dumps(alert), qos=2)
-            info.wait_for_publish()
+            info = self.mqtt_client.publish(topic, json.dumps(alert), qos=1)
 
             if info.rc == mqtt.MQTT_ERR_SUCCESS:
                 with self.lock:
@@ -315,6 +222,62 @@ class AlertGeneratorService:
 
         except Exception as error:
             print(f"[MQTT] Publish alert error: {error}")
+
+    # -------------------------------------------------------------------------
+    # Catalogue Merging & Devices List
+    # -------------------------------------------------------------------------
+    def fetch_catalogue_devices(self):
+        try:
+            url = f"{self.catalog_url}/devices"
+            response = requests.get(url, timeout=5)
+            response.raise_for_status()
+            data = response.json()
+
+            if isinstance(data, list):
+                devices = data
+            elif isinstance(data, dict):
+                devices = data.get("devices", data)
+                if isinstance(devices, dict):
+                    devices = [{"id": k, **v} if isinstance(v, dict) else {"id": k} for k, v in devices.items()]
+            else:
+                devices = []
+
+            return [d for d in devices if isinstance(d, dict) and (d.get("id") or d.get("device_id"))]
+
+        except Exception as error:
+            print(f"[CATALOGUE] Device list request error: {error}")
+            return []
+
+    def merged_devices(self):
+        catalogue_devices = self.fetch_catalogue_devices()
+
+        with self.lock:
+            latest = {k: dict(v) for k, v in self.latest_data.items()}
+
+        merged = {}
+        for c_device in catalogue_devices:
+            device_id = c_device.get("id") or c_device.get("device_id")
+            telemetry = latest.get(device_id)
+
+            if telemetry:
+                merged[device_id] = telemetry
+            else:
+                merged[device_id] = {
+                    "device_id": device_id,
+                    "name": c_device.get("name"),
+                    "type": c_device.get("type"),
+                    "status": c_device.get("status", "registered"),
+                    "temperature": None,
+                    "soil_moisture": None,
+                    "humidity": None,
+                    "timestamp": None
+                }
+
+        for device_id, telemetry in latest.items():
+            if device_id not in merged:
+                merged[device_id] = telemetry
+
+        return merged
 
     # -------------------------------------------------------------------------
     # Report Logic
@@ -391,15 +354,15 @@ class AlertGeneratorService:
 
         # GET /devices OR GET /devices/<device_id>
         if resource == "devices":
-            with self.lock:
-                if len(path) == 2:
-                    device_id = path[1]
-                    device = self.latest_data.get(device_id)
-                    if not device:
-                        raise cherrypy.HTTPError(404, f"Device '{device_id}' not found")
-                    return dict(device)
+            devices = self.merged_devices()
+            if len(path) == 2:
+                device_id = path[1]
+                device = devices.get(device_id)
+                if not device:
+                    raise cherrypy.HTTPError(404, f"Device '{device_id}' not found")
+                return device
 
-                return {"count": len(self.latest_data), "devices": self.latest_data}
+            return {"count": len(devices), "devices": devices}
 
         # GET /alerts
         if resource == "alerts":
@@ -440,7 +403,6 @@ class AlertGeneratorService:
     # -------------------------------------------------------------------------
     def start(self):
         threading.Thread(target=self.registration_task, daemon=True, name="registration-thread").start()
-        threading.Thread(target=self.threshold_refresh_task, daemon=True, name="threshold-refresh-thread").start()
         threading.Thread(target=self.mqtt_loop, daemon=True, name="mqtt-thread").start()
 
     def stop(self):
@@ -466,7 +428,8 @@ if __name__ == "__main__":
     print("[START] Alert Generator starting...")
     print(f"[INFO] Service ID: {service.id}")
     print(f"[INFO] MQTT Broker: {service.broker}:{service.port}")
-    print(f"[INFO] Subscribed Topic: {service.sub_topic}")
+    print(f"[INFO] Sensor Subscribed Topic: {service.sub_topic}")
+    print(f"[INFO] Analysis Subscribed Topic: {service.analysis_topic}")
     print(f"[INFO] Alert Topic Base: {service.pub_topic}")
 
     service.start()
