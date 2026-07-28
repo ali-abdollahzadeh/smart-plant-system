@@ -1,19 +1,5 @@
 [
     {
-        "id": "tab_nodered_register",
-        "type": "tab",
-        "label": "NodeRED Register",
-        "disabled": false,
-        "info": ""
-    },
-    {
-        "id": "ts_monitor_flow",
-        "type": "tab",
-        "label": "ThingSpeak Monitor",
-        "disabled": false,
-        "info": ""
-    },
-    {
         "id": "plant_monitor_v2",
         "type": "tab",
         "label": "Plant Monitor",
@@ -21,329 +7,24 @@
         "info": ""
     },
     {
-        "id": "9567cd871f4c1228",
-        "type": "subflow",
-        "name": "Subflow 1",
-        "info": "",
-        "in": [],
-        "out": []
-    },
-    {
-        "id": "ui_tab_v2",
-        "type": "ui_tab",
-        "name": "Monitor 1",
-        "icon": "dashboard",
-        "order": 1,
-        "disabled": false,
-        "hidden": false
-    },
-    {
-        "id": "51db08678596e402",
-        "type": "ui_tab",
-        "name": "Monitor 2",
-        "icon": "dashboard",
-        "disabled": false,
-        "hidden": false
-    },
-    {
-        "id": "d05cc46320f156d2",
-        "type": "ui_tab",
-        "name": "Monitor 3",
-        "icon": "dashboard",
-        "disabled": false,
-        "hidden": false
-    },
-    {
-        "id": "1da35cdca37300bc",
-        "type": "ui_tab",
-        "name": "Monitor 4",
-        "icon": "dashboard",
-        "disabled": false,
-        "hidden": false
-    },
-    {
-        "id": "ui_group_gauge",
-        "type": "ui_group",
-        "name": "Real-time Pressure Gauge",
-        "tab": "ui_tab_v2",
-        "order": 1,
-        "disp": true,
-        "width": "12",
-        "collapse": false,
-        "className": ""
-    },
-    {
-        "id": "ui_group_history",
-        "type": "ui_group",
-        "name": "Historical Chart",
-        "tab": "ui_tab_v2",
-        "order": 2,
-        "disp": true,
-        "width": "12",
-        "collapse": false,
-        "className": ""
-    },
-    {
-        "id": "8da3a09cde3f186a",
-        "type": "ui_group",
-        "name": "Real-time Pressure Gauge",
-        "tab": "51db08678596e402",
-        "order": 3,
-        "disp": true,
-        "width": "12",
-        "collapse": false,
-        "className": ""
-    },
-    {
-        "id": "4df9eb16b1434d39",
-        "type": "ui_group",
-        "name": "Historical Chart",
-        "tab": "51db08678596e402",
-        "order": 6,
-        "disp": true,
-        "width": "12",
-        "collapse": false,
-        "className": ""
-    },
-    {
-        "id": "049e6e4e5e47ea57",
-        "type": "ui_group",
-        "name": "Real-time Pressure Gauge",
-        "tab": "d05cc46320f156d2",
-        "order": 5,
-        "disp": true,
-        "width": "12",
-        "collapse": false,
-        "className": ""
-    },
-    {
-        "id": "de367c0ef9ce1d9c",
-        "type": "ui_group",
-        "name": "Historical Chart",
-        "tab": "d05cc46320f156d2",
-        "order": 6,
-        "disp": true,
-        "width": "12",
-        "collapse": false,
-        "className": ""
-    },
-    {
-        "id": "6410693832f49a3a",
-        "type": "ui_group",
-        "name": "Real-time Pressure Gauge",
-        "tab": "1da35cdca37300bc",
-        "order": 7,
-        "disp": true,
-        "width": "12",
-        "collapse": false,
-        "className": ""
-    },
-    {
-        "id": "d711abae374b70ee",
-        "type": "ui_group",
-        "name": "Historical Chart",
-        "tab": "1da35cdca37300bc",
-        "order": 8,
-        "disp": true,
-        "width": "12",
-        "collapse": false,
-        "className": ""
-    },
-    {
-        "id": "c38eea03d3d93134",
-        "type": "ui_base",
-        "theme": {
-            "name": "theme-light",
-            "lightTheme": {
-                "default": "#0094CE",
-                "baseColor": "#0094CE",
-                "baseFont": "-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Oxygen-Sans,Ubuntu,Cantarell,Helvetica Neue,sans-serif",
-                "edited": false
-            },
-            "darkTheme": {
-                "default": "#097479",
-                "baseColor": "#097479",
-                "baseFont": "-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Oxygen-Sans,Ubuntu,Cantarell,Helvetica Neue,sans-serif",
-                "edited": false
-            },
-            "customTheme": {
-                "name": "Untitled Theme 1",
-                "default": "#4B7930",
-                "baseColor": "#4B7930",
-                "baseFont": "-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Oxygen-Sans,Ubuntu,Cantarell,Helvetica Neue,sans-serif"
-            },
-            "themeState": {
-                "base-color": {
-                    "default": "#0094CE",
-                    "value": "#0094CE",
-                    "edited": false
-                },
-                "page-titlebar-backgroundColor": {
-                    "value": "#0094CE",
-                    "edited": false
-                },
-                "page-backgroundColor": {
-                    "value": "#fafafa",
-                    "edited": false
-                },
-                "page-sidebar-backgroundColor": {
-                    "value": "#ffffff",
-                    "edited": false
-                },
-                "group-textColor": {
-                    "value": "#1bbfff",
-                    "edited": false
-                },
-                "group-borderColor": {
-                    "value": "#ffffff",
-                    "edited": false
-                },
-                "group-backgroundColor": {
-                    "value": "#ffffff",
-                    "edited": false
-                },
-                "widget-textColor": {
-                    "value": "#111111",
-                    "edited": false
-                },
-                "widget-backgroundColor": {
-                    "value": "#0094ce",
-                    "edited": false
-                },
-                "widget-borderColor": {
-                    "value": "#ffffff",
-                    "edited": false
-                },
-                "base-font": {
-                    "value": "-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Oxygen-Sans,Ubuntu,Cantarell,Helvetica Neue,sans-serif"
-                }
-            },
-            "angularTheme": {
-                "primary": "indigo",
-                "accents": "blue",
-                "warn": "red",
-                "background": "grey",
-                "palette": "light"
-            }
-        },
-        "site": {
-            "name": "Node-RED Dashboard",
-            "hideToolbar": "false",
-            "allowSwipe": "false",
-            "lockMenu": "false",
-            "allowTempTheme": "true",
-            "dateFormat": "DD/MM/YYYY",
-            "sizes": {
-                "sx": 48,
-                "sy": 48,
-                "gx": 6,
-                "gy": 6,
-                "cx": 6,
-                "cy": 6,
-                "px": 0,
-                "py": 0
-            }
-        }
-    },
-    {
-        "id": "inject_register_start",
-        "type": "inject",
-        "z": "tab_nodered_register",
-        "name": "Register on startup",
-        "props": [],
-        "repeat": "",
-        "crontab": "",
-        "once": true,
-        "onceDelay": "3",
-        "topic": "",
-        "x": 170,
-        "y": 100,
-        "wires": [
-            [
-                "function_prepare_register"
-            ]
-        ]
-    },
-    {
-        "id": "function_prepare_register",
-        "type": "function",
-        "z": "tab_nodered_register",
-        "name": "Prepare registration payload",
-        "func": "msg.method = \"POST\";\nmsg.url = \"http://catalogue:8000/services\";\nmsg.headers = {\"Content-Type\":\"application/json\"};\nmsg.payload = {\n    id: \"nodered\",\n    name: \"Node-RED Dashboard\",\n    type: \"dashboard\",\n    endpoint: \"http://nodered:1880\",\n    status: \"active\"\n};\nreturn msg;",
-        "outputs": 1,
-        "timeout": "",
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 430,
-        "y": 100,
-        "wires": [
-            [
-                "http_register_catalogue"
-            ]
-        ]
-    },
-    {
-        "id": "http_register_catalogue",
-        "type": "http request",
-        "z": "tab_nodered_register",
-        "name": "POST to catalogue",
-        "method": "use",
-        "ret": "obj",
-        "paytoqs": "ignore",
-        "url": "",
-        "tls": "",
-        "persist": false,
-        "proxy": "",
-        "insecureHTTPParser": false,
-        "authType": "",
-        "senderr": true,
-        "headers": [],
-        "x": 670,
-        "y": 100,
-        "wires": [
-            [
-                "debug_register_response"
-            ]
-        ]
-    },
-    {
-        "id": "debug_register_response",
-        "type": "debug",
-        "z": "tab_nodered_register",
-        "name": "Registration response",
-        "active": true,
-        "tosidebar": true,
-        "console": false,
-        "tostatus": false,
-        "complete": "payload",
-        "targetType": "msg",
-        "statusVal": "",
-        "statusType": "auto",
-        "x": 910,
-        "y": 100,
-        "wires": []
-    },
-    {
         "id": "inject_1s",
         "type": "inject",
         "z": "plant_monitor_v2",
-        "name": "requests per second",
+        "name": "requests per seconds",
         "props": [
             {
                 "p": "payload"
             }
         ],
-        "repeat": "1",
+        "repeat": "5",
         "crontab": "",
         "once": true,
         "onceDelay": 0.1,
         "topic": "",
         "payload": "",
         "payloadType": "date",
-        "x": 160,
-        "y": 100,
+        "x": 200,
+        "y": 220,
         "wires": [
             [
                 "get_latest_data"
@@ -367,8 +48,8 @@
         "topic": "",
         "payload": "",
         "payloadType": "date",
-        "x": 160,
-        "y": 260,
+        "x": 200,
+        "y": 780,
         "wires": [
             [
                 "get_all_history"
@@ -391,8 +72,8 @@
         "authType": "",
         "senderr": false,
         "headers": [],
-        "x": 340,
-        "y": 100,
+        "x": 380,
+        "y": 220,
         "wires": [
             [
                 "func_split_gauge"
@@ -415,8 +96,8 @@
         "authType": "",
         "senderr": false,
         "headers": [],
-        "x": 340,
-        "y": 260,
+        "x": 380,
+        "y": 780,
         "wires": [
             [
                 "func_format_history"
@@ -428,15 +109,15 @@
         "type": "function",
         "z": "plant_monitor_v2",
         "name": "distribution",
-        "func": "if (msg.payload.feeds && msg.payload.feeds.length > 0) {\n    var f = msg.payload.feeds[0];\n    return [\n        { payload: parseFloat(f.field1) },\n        { payload: parseFloat(f.field2) },\n        { payload: parseFloat(f.field3) }\n    ];\n}\nreturn null;",
-        "outputs": 3,
+        "func": "if (msg.payload.feeds && msg.payload.feeds.length > 0) {\n    var f = msg.payload.feeds[0];\n    var t = parseFloat(f.field1);\n    var s = parseFloat(f.field2);\n    var h = parseFloat(f.field3);\n    // Standard thresholds (from gauge segments: temp 18-30, soil/humi 30-80)\n    var alert = (isNaN(t) || t < 18 || t > 30 || isNaN(s) || s < 30 || s > 80 || isNaN(h) || h < 30 || h > 80);\n    return [\n        { payload: t },\n        { payload: s },\n        { payload: h },\n        { payload: alert, topic: \"monitor1\" }\n    ];\n}\nreturn null;",
+        "outputs": 4,
         "timeout": "",
         "noerr": 0,
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 510,
-        "y": 100,
+        "x": 550,
+        "y": 220,
         "wires": [
             [
                 "gauge_temp"
@@ -446,6 +127,9 @@
             ],
             [
                 "gauge_humi"
+            ],
+            [
+                "alert_collector"
             ]
         ]
     },
@@ -461,8 +145,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 510,
-        "y": 260,
+        "x": 550,
+        "y": 780,
         "wires": [
             [
                 "chart_all_temp"
@@ -479,21 +163,21 @@
         "id": "064e7053e99cc6df",
         "type": "inject",
         "z": "plant_monitor_v2",
-        "name": "requests per second",
+        "name": "requests per seconds",
         "props": [
             {
                 "p": "payload"
             }
         ],
-        "repeat": "1",
+        "repeat": "5",
         "crontab": "",
         "once": true,
         "onceDelay": 0.1,
         "topic": "",
         "payload": "",
         "payloadType": "date",
-        "x": 160,
-        "y": 420,
+        "x": 200,
+        "y": 360,
         "wires": [
             [
                 "85d85c8f60e3f992"
@@ -517,8 +201,8 @@
         "topic": "",
         "payload": "",
         "payloadType": "date",
-        "x": 160,
-        "y": 580,
+        "x": 200,
+        "y": 920,
         "wires": [
             [
                 "428d398bf517a0e3"
@@ -541,8 +225,8 @@
         "authType": "",
         "senderr": false,
         "headers": [],
-        "x": 340,
-        "y": 420,
+        "x": 380,
+        "y": 360,
         "wires": [
             [
                 "2e4034ce46972749"
@@ -565,8 +249,8 @@
         "authType": "",
         "senderr": false,
         "headers": [],
-        "x": 340,
-        "y": 580,
+        "x": 380,
+        "y": 920,
         "wires": [
             [
                 "50e32ca68f7714d5"
@@ -578,15 +262,15 @@
         "type": "function",
         "z": "plant_monitor_v2",
         "name": "distribution",
-        "func": "if (msg.payload.feeds && msg.payload.feeds.length > 0) {\n    var f = msg.payload.feeds[0];\n    return [\n        { payload: parseFloat(f.field1) },\n        { payload: parseFloat(f.field2) },\n        { payload: parseFloat(f.field3) }\n    ];\n}\nreturn null;",
-        "outputs": 3,
+        "func": "if (msg.payload.feeds && msg.payload.feeds.length > 0) {\n    var f = msg.payload.feeds[0];\n    var t = parseFloat(f.field1);\n    var s = parseFloat(f.field2);\n    var h = parseFloat(f.field3);\n    // Standard thresholds (from gauge segments: temp 18-30, soil/humi 30-80)\n    var alert = (isNaN(t) || t < 18 || t > 30 || isNaN(s) || s < 30 || s > 80 || isNaN(h) || h < 30 || h > 80);\n    return [\n        { payload: t },\n        { payload: s },\n        { payload: h },\n        { payload: alert, topic: \"monitor2\" }\n    ];\n}\nreturn null;",
+        "outputs": 4,
         "timeout": "",
         "noerr": 0,
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 510,
-        "y": 420,
+        "x": 550,
+        "y": 360,
         "wires": [
             [
                 "a1fbc6da10fb2133"
@@ -596,6 +280,9 @@
             ],
             [
                 "efe49d48c26cbfa5"
+            ],
+            [
+                "alert_collector"
             ]
         ]
     },
@@ -611,8 +298,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 510,
-        "y": 580,
+        "x": 550,
+        "y": 920,
         "wires": [
             [
                 "c0b208785222bb96"
@@ -629,21 +316,21 @@
         "id": "a01e2c70a32e9217",
         "type": "inject",
         "z": "plant_monitor_v2",
-        "name": "requests per second",
+        "name": "requests per seconds",
         "props": [
             {
                 "p": "payload"
             }
         ],
-        "repeat": "1",
+        "repeat": "5",
         "crontab": "",
         "once": true,
         "onceDelay": 0.1,
         "topic": "",
         "payload": "",
         "payloadType": "date",
-        "x": 160,
-        "y": 720,
+        "x": 200,
+        "y": 500,
         "wires": [
             [
                 "377e30b381f08073"
@@ -667,8 +354,8 @@
         "topic": "",
         "payload": "",
         "payloadType": "date",
-        "x": 160,
-        "y": 860,
+        "x": 200,
+        "y": 1060,
         "wires": [
             [
                 "9476ada9aff6e1cc"
@@ -691,8 +378,8 @@
         "authType": "",
         "senderr": false,
         "headers": [],
-        "x": 340,
-        "y": 720,
+        "x": 380,
+        "y": 500,
         "wires": [
             [
                 "dc456a044aedc512"
@@ -715,8 +402,8 @@
         "authType": "",
         "senderr": false,
         "headers": [],
-        "x": 340,
-        "y": 860,
+        "x": 380,
+        "y": 1060,
         "wires": [
             [
                 "428aed1c126c2307"
@@ -728,15 +415,15 @@
         "type": "function",
         "z": "plant_monitor_v2",
         "name": "distribution",
-        "func": "if (msg.payload.feeds && msg.payload.feeds.length > 0) {\n    var f = msg.payload.feeds[0];\n    return [\n        { payload: parseFloat(f.field1) },\n        { payload: parseFloat(f.field2) },\n        { payload: parseFloat(f.field3) }\n    ];\n}\nreturn null;",
-        "outputs": 3,
+        "func": "if (msg.payload.feeds && msg.payload.feeds.length > 0) {\n    var f = msg.payload.feeds[0];\n    var t = parseFloat(f.field1);\n    var s = parseFloat(f.field2);\n    var h = parseFloat(f.field3);\n    // Standard thresholds (from gauge segments: temp 18-30, soil/humi 30-80)\n    var alert = (isNaN(t) || t < 18 || t > 30 || isNaN(s) || s < 30 || s > 80 || isNaN(h) || h < 30 || h > 80);\n    return [\n        { payload: t },\n        { payload: s },\n        { payload: h },\n        { payload: alert, topic: \"monitor3\" }\n    ];\n}\nreturn null;",
+        "outputs": 4,
         "timeout": "",
         "noerr": 0,
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 510,
-        "y": 720,
+        "x": 550,
+        "y": 500,
         "wires": [
             [
                 "11500d33a139a1a8"
@@ -746,6 +433,9 @@
             ],
             [
                 "a1810eaa51d1e4dc"
+            ],
+            [
+                "alert_collector"
             ]
         ]
     },
@@ -761,8 +451,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 510,
-        "y": 860,
+        "x": 550,
+        "y": 1060,
         "wires": [
             [
                 "ef679a4c22a35b4e"
@@ -779,21 +469,21 @@
         "id": "cf1d09cfb2c2993c",
         "type": "inject",
         "z": "plant_monitor_v2",
-        "name": "requests per second",
+        "name": "requests per seconds",
         "props": [
             {
                 "p": "payload"
             }
         ],
-        "repeat": "1",
+        "repeat": "5",
         "crontab": "",
         "once": true,
         "onceDelay": 0.1,
         "topic": "",
         "payload": "",
         "payloadType": "date",
-        "x": 160,
-        "y": 1000,
+        "x": 200,
+        "y": 640,
         "wires": [
             [
                 "682e0602c8cc359b"
@@ -817,8 +507,8 @@
         "topic": "",
         "payload": "",
         "payloadType": "date",
-        "x": 160,
-        "y": 1160,
+        "x": 200,
+        "y": 1200,
         "wires": [
             [
                 "8af6bdd59a78230b"
@@ -841,8 +531,8 @@
         "authType": "",
         "senderr": false,
         "headers": [],
-        "x": 340,
-        "y": 1000,
+        "x": 380,
+        "y": 640,
         "wires": [
             [
                 "dd35fcaf439d5fa3"
@@ -865,8 +555,8 @@
         "authType": "",
         "senderr": false,
         "headers": [],
-        "x": 340,
-        "y": 1160,
+        "x": 380,
+        "y": 1200,
         "wires": [
             [
                 "525c9037cb9679ba"
@@ -878,15 +568,15 @@
         "type": "function",
         "z": "plant_monitor_v2",
         "name": "distribution",
-        "func": "if (msg.payload.feeds && msg.payload.feeds.length > 0) {\n    var f = msg.payload.feeds[0];\n    return [\n        { payload: parseFloat(f.field1) },\n        { payload: parseFloat(f.field2) },\n        { payload: parseFloat(f.field3) }\n    ];\n}\nreturn null;",
-        "outputs": 3,
+        "func": "if (msg.payload.feeds && msg.payload.feeds.length > 0) {\n    var f = msg.payload.feeds[0];\n    var t = parseFloat(f.field1);\n    var s = parseFloat(f.field2);\n    var h = parseFloat(f.field3);\n    // Standard thresholds (from gauge segments: temp 18-30, soil/humi 30-80)\n    var alert = (isNaN(t) || t < 18 || t > 30 || isNaN(s) || s < 30 || s > 80 || isNaN(h) || h < 30 || h > 80);\n    return [\n        { payload: t },\n        { payload: s },\n        { payload: h },\n        { payload: alert, topic: \"monitor4\" }\n    ];\n}\nreturn null;",
+        "outputs": 4,
         "timeout": "",
         "noerr": 0,
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 510,
-        "y": 1000,
+        "x": 550,
+        "y": 640,
         "wires": [
             [
                 "736882df35d829cc"
@@ -896,6 +586,9 @@
             ],
             [
                 "e9086e5c1e710c78"
+            ],
+            [
+                "alert_collector"
             ]
         ]
     },
@@ -911,8 +604,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 510,
-        "y": 1160,
+        "x": 550,
+        "y": 1200,
         "wires": [
             [
                 "fc7713c2c23d7d0e"
@@ -945,12 +638,12 @@
             "#e6e600",
             "#ca3838"
         ],
-        "seg1": "20",
-        "seg2": "35",
+        "seg1": "18",
+        "seg2": "30",
         "diff": false,
         "className": "",
-        "x": 710,
-        "y": 60,
+        "x": 750,
+        "y": 160,
         "wires": []
     },
     {
@@ -967,18 +660,18 @@
         "label": "%",
         "format": "{{value}}",
         "min": 0,
-        "max": "150",
+        "max": "100",
         "colors": [
             "#ca3838",
             "#00b500",
             "#3030ca"
         ],
-        "seg1": "40",
-        "seg2": "60",
+        "seg1": "30",
+        "seg2": "80",
         "diff": false,
         "className": "",
-        "x": 710,
-        "y": 100,
+        "x": 750,
+        "y": 200,
         "wires": []
     },
     {
@@ -1002,11 +695,11 @@
             "#ca3838"
         ],
         "seg1": "30",
-        "seg2": "70",
+        "seg2": "80",
         "diff": false,
         "className": "",
-        "x": 700,
-        "y": 140,
+        "x": 740,
+        "y": 240,
         "wires": []
     },
     {
@@ -1029,12 +722,12 @@
             "#e6e600",
             "#ca3838"
         ],
-        "seg1": "20",
-        "seg2": "35",
+        "seg1": "18",
+        "seg2": "30",
         "diff": false,
         "className": "",
-        "x": 710,
-        "y": 380,
+        "x": 750,
+        "y": 320,
         "wires": []
     },
     {
@@ -1051,18 +744,18 @@
         "label": "%",
         "format": "{{value}}",
         "min": 0,
-        "max": "150",
+        "max": "100",
         "colors": [
             "#ca3838",
             "#00b500",
             "#3030ca"
         ],
-        "seg1": "40",
-        "seg2": "60",
+        "seg1": "30",
+        "seg2": "80",
         "diff": false,
         "className": "",
-        "x": 710,
-        "y": 420,
+        "x": 750,
+        "y": 360,
         "wires": []
     },
     {
@@ -1086,11 +779,11 @@
             "#ca3838"
         ],
         "seg1": "30",
-        "seg2": "70",
+        "seg2": "80",
         "diff": false,
         "className": "",
-        "x": 700,
-        "y": 460,
+        "x": 740,
+        "y": 400,
         "wires": []
     },
     {
@@ -1113,12 +806,12 @@
             "#e6e600",
             "#ca3838"
         ],
-        "seg1": "20",
-        "seg2": "35",
+        "seg1": "18",
+        "seg2": "30",
         "diff": false,
         "className": "",
-        "x": 710,
-        "y": 680,
+        "x": 750,
+        "y": 460,
         "wires": []
     },
     {
@@ -1135,18 +828,18 @@
         "label": "%",
         "format": "{{value}}",
         "min": 0,
-        "max": "150",
+        "max": "100",
         "colors": [
             "#ca3838",
             "#00b500",
             "#3030ca"
         ],
-        "seg1": "40",
-        "seg2": "60",
+        "seg1": "30",
+        "seg2": "80",
         "diff": false,
         "className": "",
-        "x": 710,
-        "y": 720,
+        "x": 750,
+        "y": 500,
         "wires": []
     },
     {
@@ -1170,11 +863,11 @@
             "#ca3838"
         ],
         "seg1": "30",
-        "seg2": "70",
+        "seg2": "80",
         "diff": false,
         "className": "",
-        "x": 700,
-        "y": 760,
+        "x": 740,
+        "y": 540,
         "wires": []
     },
     {
@@ -1197,12 +890,12 @@
             "#e6e600",
             "#ca3838"
         ],
-        "seg1": "20",
-        "seg2": "35",
+        "seg1": "18",
+        "seg2": "30",
         "diff": false,
         "className": "",
-        "x": 710,
-        "y": 960,
+        "x": 750,
+        "y": 600,
         "wires": []
     },
     {
@@ -1219,18 +912,18 @@
         "label": "%",
         "format": "{{value}}",
         "min": 0,
-        "max": "150",
+        "max": "100",
         "colors": [
             "#ca3838",
             "#00b500",
             "#3030ca"
         ],
-        "seg1": "40",
-        "seg2": "60",
+        "seg1": "30",
+        "seg2": "80",
         "diff": false,
         "className": "",
-        "x": 710,
-        "y": 1000,
+        "x": 750,
+        "y": 640,
         "wires": []
     },
     {
@@ -1254,11 +947,11 @@
             "#ca3838"
         ],
         "seg1": "30",
-        "seg2": "70",
+        "seg2": "80",
         "diff": false,
         "className": "",
-        "x": 700,
-        "y": 1040,
+        "x": 740,
+        "y": 680,
         "wires": []
     },
     {
@@ -1298,8 +991,8 @@
         "outputs": 1,
         "useDifferentColor": false,
         "className": "",
-        "x": 710,
-        "y": 220,
+        "x": 730,
+        "y": 740,
         "wires": [
             []
         ]
@@ -1341,8 +1034,8 @@
         "outputs": 1,
         "useDifferentColor": false,
         "className": "",
-        "x": 710,
-        "y": 260,
+        "x": 730,
+        "y": 780,
         "wires": [
             []
         ]
@@ -1384,8 +1077,8 @@
         "outputs": 1,
         "useDifferentColor": false,
         "className": "",
-        "x": 700,
-        "y": 300,
+        "x": 720,
+        "y": 820,
         "wires": [
             []
         ]
@@ -1427,8 +1120,8 @@
         "outputs": 1,
         "useDifferentColor": false,
         "className": "",
-        "x": 710,
-        "y": 540,
+        "x": 730,
+        "y": 880,
         "wires": [
             []
         ]
@@ -1470,8 +1163,8 @@
         "outputs": 1,
         "useDifferentColor": false,
         "className": "",
-        "x": 710,
-        "y": 580,
+        "x": 730,
+        "y": 920,
         "wires": [
             []
         ]
@@ -1513,8 +1206,8 @@
         "outputs": 1,
         "useDifferentColor": false,
         "className": "",
-        "x": 700,
-        "y": 620,
+        "x": 720,
+        "y": 960,
         "wires": [
             []
         ]
@@ -1556,8 +1249,8 @@
         "outputs": 1,
         "useDifferentColor": false,
         "className": "",
-        "x": 710,
-        "y": 1120,
+        "x": 730,
+        "y": 1160,
         "wires": [
             []
         ]
@@ -1599,8 +1292,8 @@
         "outputs": 1,
         "useDifferentColor": false,
         "className": "",
-        "x": 710,
-        "y": 1160,
+        "x": 730,
+        "y": 1200,
         "wires": [
             []
         ]
@@ -1642,8 +1335,8 @@
         "outputs": 1,
         "useDifferentColor": false,
         "className": "",
-        "x": 700,
-        "y": 1200,
+        "x": 720,
+        "y": 1240,
         "wires": [
             []
         ]
@@ -1685,8 +1378,8 @@
         "outputs": 1,
         "useDifferentColor": false,
         "className": "",
-        "x": 710,
-        "y": 820,
+        "x": 730,
+        "y": 1020,
         "wires": [
             []
         ]
@@ -1728,8 +1421,8 @@
         "outputs": 1,
         "useDifferentColor": false,
         "className": "",
-        "x": 710,
-        "y": 860,
+        "x": 730,
+        "y": 1060,
         "wires": [
             []
         ]
@@ -1771,10 +1464,180 @@
         "outputs": 1,
         "useDifferentColor": false,
         "className": "",
-        "x": 700,
-        "y": 900,
+        "x": 720,
+        "y": 1100,
         "wires": [
             []
         ]
+    },
+    {
+        "id": "alert_collector",
+        "type": "function",
+        "z": "plant_monitor_v2",
+        "name": "collect alerts",
+        "func": "var alerts = flow.get(\"monitor_alerts\") || {};\nif (msg.topic) {\n    alerts[msg.topic] = !!msg.payload;\n    flow.set(\"monitor_alerts\", alerts);\n}\nvar anyAlert = Object.keys(alerts).some(function(k){ return alerts[k]; });\nvar last = flow.get(\"last_any_alert\");\nif (anyAlert !== last) {\n    flow.set(\"last_any_alert\", anyAlert);\n    return { payload: anyAlert };\n}\nreturn null;",
+        "outputs": 1,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 950,
+        "y": 420,
+        "wires": [
+            [
+                "ui_alert_style"
+            ]
+        ]
+    },
+    {
+        "id": "ui_alert_style",
+        "type": "ui_template",
+        "z": "plant_monitor_v2",
+        "group": "ui_group_gauge",
+        "name": "Sidebar Alert CSS",
+        "order": 99,
+        "width": "0",
+        "height": "0",
+        "format": "<style>\n/* Alert mode: red sidebar and toolbar */\nbody.nr-dashboard-theme md-sidenav.alert-active {\n    background-color: #ffcccc !important;\n}\nbody.nr-dashboard-theme md-sidenav.alert-active md-list-item {\n    color: #a00 !important;\n}\nbody.nr-dashboard-theme md-toolbar.alert-active,\nmd-toolbar#toolbar.alert-active {\n    background-color: #ca3838 !important;\n}\n/* Make sure icons etc visible */\nbody.nr-dashboard-theme md-sidenav.alert-active .md-button {\n    color: #a00 !important;\n}\n</style>\n<script>\n(function(scope) {\n    scope.$watch('msg.payload', function(v) {\n        if (typeof v === 'undefined') return;\n        var sidenav = document.querySelector('md-sidenav');\n        var toolbar = document.querySelector('md-toolbar') || document.querySelector('#toolbar');\n        if (v) {\n            // alert on\n            if (sidenav) {\n                sidenav.classList.add('alert-active');\n                sidenav.style.backgroundColor = '#ffcccc';\n            }\n            if (toolbar) {\n                toolbar.classList.add('alert-active');\n                toolbar.style.backgroundColor = '#ca3838';\n            }\n        } else {\n            // normal\n            if (sidenav) {\n                sidenav.classList.remove('alert-active');\n                sidenav.style.backgroundColor = '';\n            }\n            if (toolbar) {\n                toolbar.classList.remove('alert-active');\n                toolbar.style.backgroundColor = '';\n            }\n        }\n    });\n})(scope);\n</script>",
+        "storeOutMessages": true,
+        "fwdInMessages": true,
+        "resendOnRefresh": true,
+        "templateScope": "local",
+        "className": "",
+        "x": 1150,
+        "y": 420,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "ui_group_gauge",
+        "type": "ui_group",
+        "name": "Real-time Pressure Gauge",
+        "tab": "ui_tab_v2",
+        "order": 1,
+        "disp": true,
+        "width": "12",
+        "collapse": false,
+        "className": ""
+    },
+    {
+        "id": "8da3a09cde3f186a",
+        "type": "ui_group",
+        "name": "Real-time Pressure Gauge",
+        "tab": "51db08678596e402",
+        "order": 3,
+        "disp": true,
+        "width": "12",
+        "collapse": false,
+        "className": ""
+    },
+    {
+        "id": "049e6e4e5e47ea57",
+        "type": "ui_group",
+        "name": "Real-time Pressure Gauge",
+        "tab": "d05cc46320f156d2",
+        "order": 5,
+        "disp": true,
+        "width": "12",
+        "collapse": false,
+        "className": ""
+    },
+    {
+        "id": "6410693832f49a3a",
+        "type": "ui_group",
+        "name": "Real-time Pressure Gauge",
+        "tab": "1da35cdca37300bc",
+        "order": 7,
+        "disp": true,
+        "width": "12",
+        "collapse": false,
+        "className": ""
+    },
+    {
+        "id": "ui_group_history",
+        "type": "ui_group",
+        "name": "Historical Chart",
+        "tab": "ui_tab_v2",
+        "order": 2,
+        "disp": true,
+        "width": "12",
+        "collapse": false,
+        "className": ""
+    },
+    {
+        "id": "4df9eb16b1434d39",
+        "type": "ui_group",
+        "name": "Historical Chart",
+        "tab": "51db08678596e402",
+        "order": 6,
+        "disp": true,
+        "width": "12",
+        "collapse": false,
+        "className": ""
+    },
+    {
+        "id": "d711abae374b70ee",
+        "type": "ui_group",
+        "name": "Historical Chart",
+        "tab": "1da35cdca37300bc",
+        "order": 8,
+        "disp": true,
+        "width": "12",
+        "collapse": false,
+        "className": ""
+    },
+    {
+        "id": "de367c0ef9ce1d9c",
+        "type": "ui_group",
+        "name": "Historical Chart",
+        "tab": "d05cc46320f156d2",
+        "order": 6,
+        "disp": true,
+        "width": "12",
+        "collapse": false,
+        "className": ""
+    },
+    {
+        "id": "ui_tab_v2",
+        "type": "ui_tab",
+        "name": "raspi-01",
+        "icon": "dashboard",
+        "order": 1,
+        "disabled": false,
+        "hidden": false
+    },
+    {
+        "id": "51db08678596e402",
+        "type": "ui_tab",
+        "name": "raspi-02",
+        "icon": "dashboard",
+        "disabled": false,
+        "hidden": false
+    },
+    {
+        "id": "d05cc46320f156d2",
+        "type": "ui_tab",
+        "name": "raspi-03",
+        "icon": "dashboard",
+        "disabled": false,
+        "hidden": false
+    },
+    {
+        "id": "1da35cdca37300bc",
+        "type": "ui_tab",
+        "name": "raspi-04",
+        "icon": "dashboard",
+        "disabled": false,
+        "hidden": false
+    },
+    {
+        "id": "75c2bd1cc484e8f4",
+        "type": "global-config",
+        "env": [],
+        "modules": {
+            "node-red-dashboard": "3.6.6"
+        }
     }
 ]
