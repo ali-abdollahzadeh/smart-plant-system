@@ -49,6 +49,23 @@ class TelegramPlantBot:
             "mqtt_alert_topic": os.environ.get("MQTT_ALERT_TOPIC", "smartplant/alerts/#"),
             "mqtt_command_topic_base": os.environ.get("MQTT_COMMAND_TOPIC_BASE", "smartplant/commands"),
         }
+    def get_alert_generator_url(self, path: str = "") -> str:
+        fallback = self.runtime.get("alert_generator_url", "")
+        try:
+            data = self.safe_get_json(f"{self.runtime['catalog_url']}/services")
+        except Exception:
+            base = fallback.rstrip("/")
+            return f"{base}/{path.lstrip('/')}" if path and base else (base or path)
+
+        for service in data.get("services", []):
+            if str(service.get("type", "")).strip().lower() != "alert_generator":
+                continue
+            endpoint = str(service.get("endpoint", "")).strip()
+            if endpoint:
+                return f"{endpoint.rstrip('/')}/{path.lstrip('/')}" if path else endpoint.rstrip("/")
+
+        base = fallback.rstrip("/")
+        return f"{base}/{path.lstrip('/')}" if path and base else (base or path)
 
     def msg(self, key: str, default: str = "") -> str:
         return self.config.get("messages", {}).get(key, default)
@@ -121,7 +138,7 @@ class TelegramPlantBot:
 
     def get_live_device_status(self, device_id: str) -> Dict[str, Any]:
         try:
-            return self.safe_get_json(f"{self.runtime['alert_generator_url']}/devices/{device_id}")
+            return self.safe_get_json(self.get_alert_generator_url(f"/devices/{device_id}"))
         except Exception:
             devices = self.get_devices_map()
             return devices.get(device_id, {"id": device_id, "status": "registered"})
@@ -360,7 +377,7 @@ class TelegramPlantBot:
         if not self.require_authorization_message(msg):
             return
         chat_id = msg.get("chat", {}).get("id")
-        data = self.safe_get_json(f"{self.runtime['alert_generator_url']}/alerts")
+        data = self.safe_get_json(self.get_alert_generator_url("/alerts"))
         alerts = [alert for alert in data.get("alerts", []) if self.is_device_allowed_for_user(msg.get("from", {}).get("id"), alert.get("device_id", ""))]
         self.bot.sendMessage(chat_id, self.format_alerts(alerts))
 
@@ -376,7 +393,7 @@ class TelegramPlantBot:
         if not self.is_device_allowed_for_user(msg.get("from", {}).get("id"), device_id):
             self.bot.sendMessage(chat_id, self.msg("device_not_allowed", "🚫 You are not allowed to access this device."))
             return
-        report = self.safe_get_json(f"{self.runtime['alert_generator_url']}/report", params={"device_id": device_id})
+        report = self.safe_get_json(self.get_alert_generator_url("/report"), params={"device_id": device_id})
         self.bot.sendMessage(chat_id, self.format_report(report))
 
     def handle_unknown(self, msg: Dict[str, Any]) -> None:
@@ -415,7 +432,7 @@ class TelegramPlantBot:
             else:
                 self.bot.sendMessage(chat_id, self.msg("choose_command_device", "⚙️ Select a device to control:"), reply_markup=self.devices_keyboard_for_user(telegram_id, "command_device"))
         elif data == "menu_alerts":
-            data_json = self.safe_get_json(f"{self.runtime['alert_generator_url']}/alerts")
+            data_json = self.safe_get_json(self.get_alert_generator_url("/alerts"))
             alerts = [alert for alert in data_json.get("alerts", []) if self.is_device_allowed_for_user(telegram_id, alert.get("device_id", ""))]
             self.bot.sendMessage(chat_id, self.format_alerts(alerts), reply_markup=self.main_menu_keyboard())
         elif data.startswith("status:"):
@@ -430,7 +447,7 @@ class TelegramPlantBot:
             if not self.is_device_allowed_for_user(telegram_id, device_id):
                 self.bot.sendMessage(chat_id, self.msg("device_not_allowed", "🚫 You are not allowed to access this device."))
             else:
-                report = self.safe_get_json(f"{self.runtime['alert_generator_url']}/report", params={"device_id": device_id})
+                report = self.safe_get_json(self.get_alert_generator_url("/report"), params={"device_id": device_id})
                 self.bot.sendMessage(chat_id, self.format_report(report), reply_markup=self.devices_keyboard_for_user(telegram_id, "report"))
         elif data.startswith("command_device:"):
             device_id = data.split(":", 1)[1]
