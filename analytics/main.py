@@ -1,5 +1,6 @@
 import copy
 import json
+import math
 import os
 import threading
 import time
@@ -10,8 +11,14 @@ import paho.mqtt.client as mqtt
 import requests
 
 
-class AnalyticsControlService:
+class AnalyticsService:
     exposed = True
+
+    SENSOR_FIELDS = {
+        "temperature": "field1",
+        "soil_moisture": "field2",
+        "humidity": "field3",
+    }
 
     SENSOR_RULES = {
         "temperature": {
@@ -31,37 +38,23 @@ class AnalyticsControlService:
         },
     }
 
-    def __init__(self):
-        self.service_id = os.environ.get("SERVICE_ID", "analytics")
-        self.service_name = os.environ.get("SERVICE_NAME", "Analytics Service")
-        self.service_type = os.environ.get("SERVICE_TYPE", "analytics")
-        self.service_host = os.environ.get("SERVICE_HOST", "0.0.0.0")
-        self.service_port = int(os.environ.get("SERVICE_PORT", 8090))
+    def __init__(self, config):
+        self.config = config
 
-        self.catalog_url = os.environ.get(
-            "CATALOG_URL", "http://catalogue:8000"
-        ).rstrip("/")
-        self.registration_retry_delay = int(
-            os.environ.get("REGISTRATION_RETRY_DELAY", 5)
-        )
-        self.threshold_refresh_interval = int(
-            os.environ.get("THRESHOLD_REFRESH_INTERVAL", 60)
-        )
-
-        self.mqtt_broker = os.environ.get("MQTT_BROKER", "mosquitto")
-        self.mqtt_port = int(os.environ.get("MQTT_PORT", 1883))
-        self.config_file = os.environ.get("CONFIG_FILE", "/app/config.json")
-
-        with open(self.config_file, "r", encoding="utf-8") as file:
-            self.config = json.load(file)
-
-        self._validate_local_config()
+        self.service = config["service"]
+        self.catalogue = config["catalogue"]
+        self.thingspeak = config["thingspeak_adapter"]
+        self.mqtt_config = config["mqtt"]
+        self.analytics_config = config["analytics"]
+        self.commands = config["commands"]
 
         self.lock = threading.RLock()
+
         self.latest_data = {}
         self.command_history = []
         self.analysis_history = []
         self.last_command_by_device = {}
+        self.last_historical_analysis = {}
 
         self.thresholds = None
         self.thresholds_updated_at = None
@@ -69,122 +62,136 @@ class AnalyticsControlService:
 
         self.mqtt_connected = False
         self.mqtt_client = mqtt.Client(
-            client_id=self.service_id,
+            client_id=self.mqtt_config["client_id"],
             clean_session=True,
         )
         self.mqtt_client.on_connect = self.on_mqtt_connect
         self.mqtt_client.on_disconnect = self.on_mqtt_disconnect
         self.mqtt_client.on_message = self.on_mqtt_message
 
-    def now_utc_iso(self):
-        return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+        self.validate_config()
 
-    def sensor_topic(self):
-        return self.config["mqtt"]["sensor_topic"]
-
-    def command_topic(self, device_id):
-        return f'{self.config["mqtt"]["command_topic_base"]}/{device_id}'
-
-    def analysis_topic(self, device_id):
-        return f'{self.config["mqtt"]["analysis_topic_base"]}/{device_id}'
-
-    def _validate_local_config(self):
-        mqtt_config = self.config.get("mqtt", {})
-        commands = self.config.get("commands", {})
-
-        required_mqtt = (
+    # --------------------------------------------------
+    # Configuration / helpers
+    # --------------------------------------------------
+    def validate_config(self):
+        required_topics = (
             "sensor_topic",
             "command_topic_base",
             "analysis_topic_base",
         )
-        missing_mqtt = [key for key in required_mqtt if not mqtt_config.get(key)]
-        if missing_mqtt:
-            raise ValueError(
-                "Missing MQTT configuration: " + ", ".join(missing_mqtt)
-            )
 
-        required_commands = []
+        for key in required_topics:
+            if not self.mqtt_config.get(key):
+                raise ValueError(f"Missing MQTT configuration: {key}")
+
         for rule in self.SENSOR_RULES.values():
-            required_commands.extend(rule.values())
+            for command_key in rule.values():
+                if command_key not in self.commands:
+                    raise ValueError(
+                        f"Missing command configuration: {command_key}"
+                    )
 
-        missing_commands = [
-            key for key in required_commands if not commands.get(key)
-        ]
-        if missing_commands:
-            raise ValueError(
-                "Missing command configuration: "
-                + ", ".join(missing_commands)
-            )
+    def now_utc_iso(self):
+        return (
+            datetime.now(timezone.utc)
+            .replace(microsecond=0)
+            .isoformat()
+        )
 
-    # ------------------------------------------------------------------
-    # Catalogue
-    # ------------------------------------------------------------------
+    def sensor_topic(self):
+        return self.mqtt_config["sensor_topic"]
+
+    def command_topic(self, device_id):
+        return (
+            f'{self.mqtt_config["command_topic_base"]}/'
+            f"{device_id}"
+        )
+
+    def analysis_topic(self, device_id):
+        return (
+            f'{self.mqtt_config["analysis_topic_base"]}/'
+            f"{device_id}"
+        )
+
+    # --------------------------------------------------
+    # Catalogue registration
+    # --------------------------------------------------
     def registration_payload(self):
         return {
-            "id": self.service_id,
-            "name": self.service_name,
-            "type": self.service_type,
-            "endpoint": f"http://{self.service_id}:{self.service_port}",
+            "id": self.service["id"],
+            "name": self.service["name"],
+            "type": self.service["type"],
+            "endpoint": (
+                f'http://{self.service["id"]}:'
+                f'{self.service["port"]}'
+            ),
             "status": "active",
         }
 
     def register_service(self):
         try:
             response = requests.post(
-                f"{self.catalog_url}/services",
+                f'{self.catalogue["url"]}/services',
                 json=self.registration_payload(),
                 timeout=5,
             )
+
             if response.status_code in (200, 201):
-                print("[CATALOGUE] Analytics service registered/refreshed")
+                print("[CATALOGUE] Analytics registered")
                 return True
 
             print(
                 "[CATALOGUE] Registration failed: "
                 f"{response.status_code} {response.text}"
             )
+
         except requests.RequestException as error:
             print(f"[CATALOGUE] Registration error: {error}")
 
         return False
 
-    def registration_task(self):
-        while True:
-            self.register_service()
-            time.sleep(60)
+    def registration_startup_task(self):
+        retry_delay = self.service["registration_retry_delay"]
 
-    def _extract_thresholds(self, response_data):
-        if not isinstance(response_data, dict):
-            raise ValueError("Catalogue config response must be an object")
+        while not self.register_service():
+            print(
+                "[CATALOGUE] Retrying registration in "
+                f"{retry_delay} seconds..."
+            )
+            time.sleep(retry_delay)
 
-        config_data = response_data.get("config", response_data)
-        thresholds = config_data.get("thresholds")
+    # --------------------------------------------------
+    # Catalogue thresholds
+    # --------------------------------------------------
+    def extract_thresholds(self, data):
+        config = data.get("config", data)
+        thresholds = config.get("thresholds")
 
         if not isinstance(thresholds, dict):
-            raise ValueError("Catalogue config has no thresholds object")
+            raise ValueError("Catalogue has no thresholds object")
 
         validated = {}
-        for sensor_name in self.SENSOR_RULES:
-            limits = thresholds.get(sensor_name)
+
+        for sensor_type in self.SENSOR_RULES:
+            limits = thresholds.get(sensor_type)
+
             if not isinstance(limits, dict):
-                raise ValueError(f"Missing thresholds for {sensor_name}")
-
-            try:
-                threshold_min = float(limits["min"])
-                threshold_max = float(limits["max"])
-            except (KeyError, TypeError, ValueError) as error:
                 raise ValueError(
-                    f"Invalid thresholds for {sensor_name}"
-                ) from error
-
-            if threshold_min > threshold_max:
-                raise ValueError(
-                    f"Minimum exceeds maximum for {sensor_name}"
+                    f"Missing thresholds for {sensor_type}"
                 )
 
-            validated[sensor_name] = {
-                "min": threshold_min,
-                "max": threshold_max,
+            minimum = float(limits["min"])
+            maximum = float(limits["max"])
+
+            if minimum > maximum:
+                raise ValueError(
+                    f"Minimum exceeds maximum for {sensor_type}"
+                )
+
+            validated[sensor_type] = {
+                "min": minimum,
+                "max": maximum,
             }
 
         return validated
@@ -192,79 +199,107 @@ class AnalyticsControlService:
     def load_thresholds_from_catalogue(self):
         try:
             response = requests.get(
-                f"{self.catalog_url}/config",
+                f'{self.catalogue["url"]}/config',
                 timeout=5,
             )
             response.raise_for_status()
-            new_thresholds = self._extract_thresholds(response.json())
+
+            new_thresholds = self.extract_thresholds(
+                response.json()
+            )
 
             with self.lock:
                 changed = new_thresholds != self.thresholds
                 self.thresholds = new_thresholds
                 self.thresholds_updated_at = self.now_utc_iso()
                 self.thresholds_ready.set()
-                latest_snapshot = [
-                    copy.deepcopy(item)
-                    for item in self.latest_data.values()
-                ]
 
             if changed:
                 print(
                     "[CATALOGUE] Thresholds loaded/updated: "
                     f"{new_thresholds}"
                 )
-                for sensor_data in latest_snapshot:
-                    self.evaluate_controls(sensor_data)
-            else:
-                print("[CATALOGUE] Thresholds refreshed; no changes")
 
             return True
 
-        except (requests.RequestException, ValueError, json.JSONDecodeError) as error:
+        except (requests.RequestException, ValueError) as error:
             print(f"[CATALOGUE] Threshold load error: {error}")
             return False
 
     def threshold_refresh_task(self):
+        refresh_interval = self.catalogue[
+            "threshold_refresh_interval"
+        ]
+        retry_delay = self.service[
+            "registration_retry_delay"
+        ]
+
         while True:
             loaded = self.load_thresholds_from_catalogue()
-            delay = (
-                self.threshold_refresh_interval
-                if loaded
-                else self.registration_retry_delay
+            time.sleep(
+                refresh_interval if loaded else retry_delay
             )
-            time.sleep(delay)
 
     def get_thresholds_snapshot(self):
         with self.lock:
             return copy.deepcopy(self.thresholds)
 
-    # ------------------------------------------------------------------
+    # --------------------------------------------------
     # MQTT
-    # ------------------------------------------------------------------
-    def on_mqtt_connect(self, client, userdata, flags, rc):
+    # --------------------------------------------------
+    def on_mqtt_connect(
+        self,
+        client,
+        userdata,
+        flags,
+        rc
+    ):
         if rc == 0:
             self.mqtt_connected = True
-            client.subscribe(self.sensor_topic(), qos=1)
-            print(
-                f"[MQTT] Connected to {self.mqtt_broker}:{self.mqtt_port}"
+            client.subscribe(
+                self.sensor_topic(),
+                qos=self.mqtt_config["qos"],
             )
-            print(f"[MQTT] Subscribed to {self.sensor_topic()}")
+
+            print(
+                "[MQTT] Connected to "
+                f'{self.mqtt_config["broker"]}:'
+                f'{self.mqtt_config["port"]}'
+            )
+            print(
+                f"[MQTT] Subscribed to {self.sensor_topic()}"
+            )
+
         else:
             self.mqtt_connected = False
-            print(f"[MQTT] Connection failed with rc={rc}")
+            print(
+                f"[MQTT] Connection failed with rc={rc}"
+            )
 
-    def on_mqtt_disconnect(self, client, userdata, rc):
+    def on_mqtt_disconnect(
+        self,
+        client,
+        userdata,
+        rc
+    ):
         self.mqtt_connected = False
         print(f"[MQTT] Disconnected with rc={rc}")
 
-    def on_mqtt_message(self, client, userdata, message):
+    def on_mqtt_message(
+        self,
+        client,
+        userdata,
+        message
+    ):
         try:
             sensor_data = json.loads(
                 message.payload.decode("utf-8")
             )
+
             device_id = sensor_data.get("device_id")
+
             if not device_id:
-                print("[MQTT] Missing device_id in sensor payload")
+                print("[MQTT] Missing device_id")
                 return
 
             sensor_data["_mqtt_topic"] = message.topic
@@ -274,66 +309,65 @@ class AnalyticsControlService:
                 self.latest_data[device_id] = sensor_data
 
             print(
-                f"[MQTT] Sensor data received from "
-                f"{message.topic}: {sensor_data}"
+                f"[MQTT] Received from {message.topic}: "
+                f"{sensor_data}"
             )
+
+            # Real-time threshold control.
             self.evaluate_controls(sensor_data)
+
+            # Historical analytics is intentionally separate from
+            # simple threshold control.
+            self.maybe_run_historical_analysis(device_id)
 
         except json.JSONDecodeError:
             print("[MQTT] Invalid sensor JSON")
+
         except Exception as error:
-            print(f"[MQTT] Sensor processing error: {error}")
+            print(
+                f"[MQTT] Sensor processing error: {error}"
+            )
 
     def mqtt_loop(self):
         while True:
             try:
                 self.mqtt_client.connect(
-                    self.mqtt_broker,
-                    self.mqtt_port,
+                    self.mqtt_config["broker"],
+                    self.mqtt_config["port"],
                     keepalive=60,
                 )
                 self.mqtt_client.loop_forever()
+
             except Exception as error:
                 self.mqtt_connected = False
                 print(f"[MQTT] Connection error: {error}")
                 time.sleep(5)
 
-    def _publish_json(self, topic, payload):
+    def publish_json(self, topic, payload):
         if not self.mqtt_connected:
-            print(f"[MQTT] Cannot publish to {topic}: disconnected")
             return False
 
         try:
             info = self.mqtt_client.publish(
                 topic,
                 json.dumps(payload),
-                qos=1,
+                qos=self.mqtt_config["qos"],
             )
-
-            # Never block the Paho MQTT callback/network thread here.
             return info.rc == mqtt.MQTT_ERR_SUCCESS
+
         except Exception as error:
-            print(f"[MQTT] Publish error on {topic}: {error}")
+            print(f"[MQTT] Publish error: {error}")
             return False
 
-    def publish_analysis(self, payload):
-        topic = self.analysis_topic(payload["device_id"])
-
-        if self._publish_json(topic, payload):
-            with self.lock:
-                self.analysis_history.append(payload)
-                self.analysis_history = self.analysis_history[-500:]
-
-            print(
-                f"[MQTT] Published analysis to {topic}: {payload}"
-            )
-
+    # --------------------------------------------------
+    # Real-time threshold control
+    # --------------------------------------------------
     def publish_command(
         self,
         device_id,
         sensor_type,
         command,
-        reason,
+        reason
     ):
         with self.lock:
             last_command = (
@@ -352,29 +386,32 @@ class AnalyticsControlService:
             "reason": reason,
             "timestamp": self.now_utc_iso(),
         }
-        topic = self.command_topic(device_id)
 
-        if self._publish_json(topic, payload):
+        if self.publish_json(
+            self.command_topic(device_id),
+            payload
+        ):
             with self.lock:
                 self.command_history.append(payload)
-                self.command_history = self.command_history[-200:]
+                self.command_history = (
+                    self.command_history[-200:]
+                )
                 self.last_command_by_device.setdefault(
-                    device_id, {}
+                    device_id,
+                    {}
                 )[sensor_type] = command
 
             print(
-                f"[MQTT] Published command to {topic}: {payload}"
+                "[MQTT] Published command: "
+                f"{payload}"
             )
 
-    # ------------------------------------------------------------------
-    # Rule engine
-    # ------------------------------------------------------------------
     def evaluate_sensor(
         self,
         device_id,
         sensor_type,
         raw_value,
-        limits,
+        limits
     ):
         if raw_value is None:
             return
@@ -382,58 +419,30 @@ class AnalyticsControlService:
         try:
             value = float(raw_value)
         except (TypeError, ValueError):
-            print(
-                f"[RULES] Invalid {sensor_type} value "
-                f"for {device_id}: {raw_value}"
-            )
             return
 
-        threshold_min = limits["min"]
-        threshold_max = limits["max"]
-
-        if value < threshold_min:
+        if value < limits["min"]:
             state = "low"
-        elif value > threshold_max:
+        elif value > limits["max"]:
             state = "high"
         else:
             state = "normal"
 
-        command_key = self.SENSOR_RULES[sensor_type][
-            f"{state}_command"
-        ]
-        command = self.config["commands"][command_key]
-        reason = f"{sensor_type}_{state}"
+        command_key = self.SENSOR_RULES[
+            sensor_type
+        ][f"{state}_command"]
 
-        analysis_payload = {
-            "device_id": device_id,
-            "sensor_type": sensor_type,
-            "value": value,
-            "state": state,
-            "threshold_min": threshold_min,
-            "threshold_max": threshold_max,
-            "reason": reason,
-            "timestamp": self.now_utc_iso(),
-        }
-
-        # Alert Generator consumes this.
-        self.publish_analysis(analysis_payload)
-
-        # Raspberry Pi consumes this.
         self.publish_command(
             device_id,
             sensor_type,
-            command,
-            reason,
+            self.commands[command_key],
+            f"{sensor_type}_{state}",
         )
 
     def evaluate_controls(self, sensor_data):
         thresholds = self.get_thresholds_snapshot()
 
         if thresholds is None:
-            print(
-                "[RULES] Thresholds are not loaded; "
-                "evaluation skipped"
-            )
             return
 
         device_id = sensor_data["device_id"]
@@ -446,136 +455,239 @@ class AnalyticsControlService:
                 thresholds[sensor_type],
             )
 
+    # --------------------------------------------------
+    # Historical data analytics
+    # --------------------------------------------------
+    def get_history(self, device_id):
+        response = requests.get(
+            (
+                f'{self.thingspeak["url"]}'
+                f'{self.thingspeak["history_endpoint"]}'
+            ),
+            params={
+                "device_id": device_id,
+                "results": self.thingspeak[
+                    "history_results"
+                ],
+            },
+            timeout=10,
+        )
+        response.raise_for_status()
+        return response.json().get("feeds", [])
 
-    # ------------------------------------------------------------------
-    # Catalogue device registry + live telemetry merge
-    # ------------------------------------------------------------------
-    def fetch_catalogue_devices(self):
+    def extract_history_values(
+        self,
+        feeds,
+        field_name
+    ):
+        values = []
+
+        for feed in feeds:
+            raw_value = feed.get(field_name)
+
+            if raw_value in (None, ""):
+                continue
+
+            try:
+                values.append(float(raw_value))
+            except (TypeError, ValueError):
+                continue
+
+        return values
+
+    def mean(self, values):
+        return sum(values) / len(values)
+
+    def standard_deviation(self, values):
+        if len(values) < 2:
+            return 0.0
+
+        average = self.mean(values)
+        variance = sum(
+            (value - average) ** 2
+            for value in values
+        ) / len(values)
+
+        return math.sqrt(variance)
+
+    def linear_trend_slope(self, values):
         """
-        Return all registered devices from Catalogue as a list.
-
-        Supported Catalogue response forms:
-        1. {"count": 4, "devices": [{...}, {...}]}
-        2. {"devices": {"raspi-01": {...}, ...}}
-        3. [{...}, {...}]
+        Simple least-squares slope over sample index.
+        Positive slope -> increasing trend.
+        Negative slope -> decreasing trend.
         """
-        try:
-            response = requests.get(
-                f"{self.catalog_url}/devices",
-                timeout=5,
-            )
-            response.raise_for_status()
-            data = response.json()
+        size = len(values)
 
-        except requests.RequestException as error:
-            raise cherrypy.HTTPError(
-                503,
-                f"Catalogue is unavailable: {error}",
-            )
+        if size < 2:
+            return 0.0
 
-        except json.JSONDecodeError as error:
-            raise cherrypy.HTTPError(
-                502,
-                f"Catalogue returned invalid JSON: {error}",
-            )
+        x_mean = (size - 1) / 2
+        y_mean = self.mean(values)
 
-        if isinstance(data, list):
-            devices = data
+        numerator = sum(
+            (index - x_mean) * (value - y_mean)
+            for index, value in enumerate(values)
+        )
+        denominator = sum(
+            (index - x_mean) ** 2
+            for index in range(size)
+        )
 
-        elif isinstance(data, dict):
-            devices = data.get("devices", data)
+        if denominator == 0:
+            return 0.0
 
-            if isinstance(devices, dict):
-                normalized = []
+        return numerator / denominator
 
-                for device_id, device_data in devices.items():
-                    if isinstance(device_data, dict):
-                        item = copy.deepcopy(device_data)
-                        item.setdefault("id", device_id)
-                    else:
-                        item = {
-                            "id": device_id,
-                            "value": device_data,
-                        }
-
-                    normalized.append(item)
-
-                devices = normalized
-
-        else:
-            devices = []
-
-        if not isinstance(devices, list):
-            raise cherrypy.HTTPError(
-                502,
-                "Catalogue returned an unsupported devices format",
-            )
-
-        return [
-            copy.deepcopy(device)
-            for device in devices
-            if isinstance(device, dict)
-            and (device.get("id") or device.get("device_id"))
+    def trend_label(self, slope):
+        epsilon = self.analytics_config[
+            "trend_epsilon"
         ]
 
-    def merged_registered_devices(self):
-        """
-        Merge Catalogue registry information with telemetry that
-        Analytics has received since its current start.
-        """
-        registered_devices = self.fetch_catalogue_devices()
+        if slope > epsilon:
+            return "increasing"
 
-        with self.lock:
-            live_data = copy.deepcopy(self.latest_data)
+        if slope < -epsilon:
+            return "decreasing"
 
-        merged = {}
+        return "stable"
 
-        for catalogue_device in registered_devices:
-            device_id = (
-                catalogue_device.get("id")
-                or catalogue_device.get("device_id")
-            )
+    def historical_sensor_analysis(
+        self,
+        sensor_type,
+        values
+    ):
+        minimum_points = self.analytics_config[
+            "minimum_history_points"
+        ]
 
-            latest = live_data.get(device_id)
-            merged[device_id] = {
-                "id": device_id,
-                "name": catalogue_device.get("name"),
-                "type": catalogue_device.get("type"),
-                "registered": True,
-                "catalogue_status": catalogue_device.get("status"),
-                "mqtt_topic": catalogue_device.get("mqtt_topic"),
-                "command_topic": catalogue_device.get("command_topic"),
-                "telemetry_received": latest is not None,
-                "latest_data": latest,
-                "last_seen": (
-                    latest.get("_received_at")
-                    if latest is not None
-                    else None
-                ),
+        if len(values) < minimum_points:
+            return {
+                "history_points": len(values),
+                "status": "insufficient_history",
             }
 
-        # Keep unexpected publishers visible even when they are not
-        # registered in Catalogue.
-        for device_id, latest in live_data.items():
-            if device_id not in merged:
-                merged[device_id] = {
-                    "id": device_id,
-                    "name": None,
-                    "type": None,
-                    "registered": False,
-                    "catalogue_status": None,
-                    "mqtt_topic": None,
-                    "command_topic": None,
-                    "telemetry_received": True,
-                    "latest_data": latest,
-                    "last_seen": latest.get("_received_at"),
-                }
+        average = self.mean(values)
+        std_dev = self.standard_deviation(values)
+        slope = self.linear_trend_slope(values)
+        latest = values[-1]
 
-        return merged
+        z_score = 0.0
+        if std_dev > 0:
+            z_score = (latest - average) / std_dev
 
-    # ------------------------------------------------------------------
-    # REST API
-    # ------------------------------------------------------------------
+        return {
+            "history_points": len(values),
+            "latest": round(latest, 3),
+            "mean": round(average, 3),
+            "standard_deviation": round(std_dev, 3),
+            "minimum": round(min(values), 3),
+            "maximum": round(max(values), 3),
+            "trend_slope": round(slope, 4),
+            "trend": self.trend_label(slope),
+            "z_score": round(z_score, 3),
+            "anomaly": (
+                abs(z_score)
+                >= self.analytics_config[
+                    "zscore_warning"
+                ]
+            ),
+        }
+
+    def run_historical_analysis(self, device_id):
+        try:
+            feeds = self.get_history(device_id)
+
+            sensors = {}
+
+            for sensor_type, field_name in (
+                self.SENSOR_FIELDS.items()
+            ):
+                values = self.extract_history_values(
+                    feeds,
+                    field_name
+                )
+                sensors[sensor_type] = (
+                    self.historical_sensor_analysis(
+                        sensor_type,
+                        values
+                    )
+                )
+
+            payload = {
+                "device_id": device_id,
+                "analysis_type": "historical_statistics",
+                "history_source": "thingspeak",
+                "requested_results": self.thingspeak[
+                    "history_results"
+                ],
+                "sensors": sensors,
+                "timestamp": self.now_utc_iso(),
+            }
+
+            with self.lock:
+                self.analysis_history.append(payload)
+                self.analysis_history = (
+                    self.analysis_history[-500:]
+                )
+                self.last_historical_analysis[
+                    device_id
+                ] = time.time()
+
+            self.publish_json(
+                self.analysis_topic(device_id),
+                payload
+            )
+
+            print(
+                "[ANALYTICS] Historical analysis "
+                f"for {device_id}: {payload}"
+            )
+
+            return payload
+
+        except requests.RequestException as error:
+            print(
+                "[ANALYTICS] Historical data error "
+                f"for {device_id}: {error}"
+            )
+            return None
+
+    def maybe_run_historical_analysis(
+        self,
+        device_id
+    ):
+        interval = self.thingspeak[
+            "analysis_interval"
+        ]
+
+        with self.lock:
+            last_time = self.last_historical_analysis.get(
+                device_id,
+                0
+            )
+
+        if time.time() - last_time < interval:
+            return
+
+        # Run outside the MQTT callback so REST/history access
+        # does not block MQTT message processing.
+        threading.Thread(
+            target=self.run_historical_analysis,
+            args=(device_id,),
+            daemon=True,
+            name=f"history-{device_id}",
+        ).start()
+
+        with self.lock:
+            # Reserve the interval immediately to avoid spawning
+            # several history threads for consecutive messages.
+            self.last_historical_analysis[
+                device_id
+            ] = time.time()
+
+    # --------------------------------------------------
+    # REST
+    # --------------------------------------------------
     @cherrypy.tools.json_out()
     def GET(self, *path, **query):
         if not path:
@@ -586,8 +698,8 @@ class AnalyticsControlService:
                     "devices": "/devices",
                     "commands": "/commands",
                     "analysis": "/analysis",
+                    "analysis_device": "/analysis/<device_id>",
                     "rules": "/rules",
-                    "summary": "/summary",
                 },
             }
 
@@ -595,97 +707,51 @@ class AnalyticsControlService:
 
         if resource == "health":
             return {
-                "status": (
-                    "ok"
-                    if self.thresholds_ready.is_set()
-                    else "degraded"
-                ),
-                "service_id": self.service_id,
+                "status": "ok",
                 "mqtt_connected": self.mqtt_connected,
-                "thresholds_loaded": self.thresholds_ready.is_set(),
-                "thresholds_updated_at": self.thresholds_updated_at,
+                "thresholds_loaded": (
+                    self.thresholds_ready.is_set()
+                ),
                 "timestamp": self.now_utc_iso(),
             }
 
         if resource == "devices":
-            if len(path) > 2:
-                raise cherrypy.HTTPError(
-                    404,
-                    "Invalid devices path",
+            with self.lock:
+                devices = copy.deepcopy(
+                    self.latest_data
                 )
-
-            devices = self.merged_registered_devices()
-
-            if len(path) == 2:
-                device_id = path[1]
-                device = devices.get(device_id)
-
-                # A 404 now means the device is neither registered
-                # in Catalogue nor observed by Analytics.
-                if device is None:
-                    raise cherrypy.HTTPError(
-                        404,
-                        f"Device '{device_id}' is not registered "
-                        "and has not been observed",
-                    )
-
-                return device
 
             return {
                 "count": len(devices),
-                "registered_count": sum(
-                    1
-                    for device in devices.values()
-                    if device["registered"]
-                ),
-                "telemetry_count": sum(
-                    1
-                    for device in devices.values()
-                    if device["telemetry_received"]
-                ),
                 "devices": devices,
             }
 
         if resource == "commands":
             with self.lock:
-                commands = copy.deepcopy(self.command_history)
+                commands = copy.deepcopy(
+                    self.command_history
+                )
+
             return {
                 "count": len(commands),
                 "commands": commands,
             }
 
         if resource == "analysis":
-            if len(path) > 2:
-                raise cherrypy.HTTPError(
-                    404,
-                    "Invalid analysis path",
+            with self.lock:
+                analysis = copy.deepcopy(
+                    self.analysis_history
                 )
 
-            with self.lock:
-                analysis = copy.deepcopy(self.analysis_history)
-
-            # GET /analysis/<device_id>
             if len(path) == 2:
                 device_id = path[1]
-                device_analysis = [
+                analysis = [
                     item
                     for item in analysis
-                    if item.get("device_id") == device_id
+                    if item.get("device_id")
+                    == device_id
                 ]
 
-                if not device_analysis:
-                    raise cherrypy.HTTPError(
-                        404,
-                        f"No analysis found for device '{device_id}'",
-                    )
-
-                return {
-                    "device_id": device_id,
-                    "count": len(device_analysis),
-                    "analysis": device_analysis,
-                }
-
-            # GET /analysis
             return {
                 "count": len(analysis),
                 "analysis": analysis,
@@ -693,53 +759,35 @@ class AnalyticsControlService:
 
         if resource == "rules":
             return {
-                "thresholds": self.get_thresholds_snapshot(),
-                "thresholds_source": f"{self.catalog_url}/config",
+                "thresholds": (
+                    self.get_thresholds_snapshot()
+                ),
                 "commands": copy.deepcopy(
-                    self.config["commands"]
+                    self.commands
                 ),
             }
 
-        if resource == "summary":
-            devices = self.merged_registered_devices()
+        raise cherrypy.HTTPError(
+            404,
+            "Endpoint not found"
+        )
 
-            with self.lock:
-                commands_count = len(self.command_history)
-                analysis_count = len(self.analysis_history)
-
-            return {
-                "registered_devices_count": sum(
-                    1
-                    for device in devices.values()
-                    if device["registered"]
-                ),
-                "telemetry_devices_count": sum(
-                    1
-                    for device in devices.values()
-                    if device["telemetry_received"]
-                ),
-                "commands_count": commands_count,
-                "analysis_count": analysis_count,
-                "mqtt_connected": self.mqtt_connected,
-                "thresholds_loaded": (
-                    self.thresholds_ready.is_set()
-                ),
-                "last_update": self.now_utc_iso(),
-            }
-
-        raise cherrypy.HTTPError(404, "Endpoint not found")
-
+    # --------------------------------------------------
+    # Lifecycle
+    # --------------------------------------------------
     def start(self):
         threading.Thread(
-            target=self.registration_task,
+            target=self.registration_startup_task,
             daemon=True,
             name="registration-thread",
         ).start()
+
         threading.Thread(
             target=self.threshold_refresh_task,
             daemon=True,
             name="threshold-thread",
         ).start()
+
         threading.Thread(
             target=self.mqtt_loop,
             daemon=True,
@@ -754,19 +802,19 @@ class AnalyticsControlService:
 
 
 if __name__ == "__main__":
-    service = AnalyticsControlService()
-
-    print("[START] Analytics Service starting...")
-    print(f"[INFO] Sensor topic: {service.sensor_topic()}")
-    print(
-        "[INFO] Analysis topic base: "
-        f'{service.config["mqtt"]["analysis_topic_base"]}'
-    )
-    print(
-        f"[INFO] Threshold source: "
-        f"{service.catalog_url}/config"
+    config_file = os.environ.get(
+        "CONFIG_FILE",
+        "/app/config.json"
     )
 
+    with open(
+        config_file,
+        "r",
+        encoding="utf-8"
+    ) as file:
+        config = json.load(file)
+
+    service = AnalyticsService(config)
     service.start()
 
     cherrypy.tree.mount(
@@ -781,13 +829,18 @@ if __name__ == "__main__":
             }
         },
     )
-    cherrypy.config.update(
-        {
-            "server.socket_host": service.service_host,
-            "server.socket_port": service.service_port,
-            "log.screen": True,
-        }
+
+    cherrypy.config.update({
+        "server.socket_host":
+            config["service"]["host"],
+        "server.socket_port":
+            config["service"]["port"],
+        "log.screen": True,
+    })
+
+    cherrypy.engine.subscribe(
+        "stop",
+        service.stop
     )
-    cherrypy.engine.subscribe("stop", service.stop)
     cherrypy.engine.start()
     cherrypy.engine.block()

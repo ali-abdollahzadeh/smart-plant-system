@@ -1,21 +1,45 @@
 {
+    "service": {
+        "id": "analytics",
+        "name": "Analytics Service",
+        "type": "analytics",
+        "host": "0.0.0.0",
+        "port": 8090,
+        "registration_retry_delay": 5
+    },
+    "catalogue": {
+        "url": "http://catalogue:8000",
+        "threshold_refresh_interval": 60
+    },
+    "thingspeak_adapter": {
+        "url": "http://thingspeak-adapter:8080",
+        "history_endpoint": "/history",
+        "history_results": 30,
+        "analysis_interval": 60
+    },
     "mqtt": {
-      "sensor_topic": "smartplant/sensors/#",
-      "command_topic_base": "smartplant/commands",
-      "analysis_topic_base": "smartplant/analysis"
+        "broker": "mosquitto",
+        "port": 1883,
+        "client_id": "analytics",
+        "sensor_topic": "smartplant/sensors/#",
+        "command_topic_base": "smartplant/commands",
+        "analysis_topic_base": "smartplant/analysis",
+        "qos": 1
+    },
+    "analytics": {
+        "minimum_history_points": 5,
+        "zscore_warning": 2.0,
+        "trend_epsilon": 0.02
     },
     "commands": {
-      "temperature_low": "start_heating",
-      "temperature_high": "start_cooling",
-      "temperature_normal": "stop_temperature_control",
-  
-      "soil_moisture_low": "increase_watering",
-      "soil_moisture_high": "reduce_watering",
-      "soil_moisture_normal": "stop_watering_adjustment",
-  
-      "humidity_low": "increase_humidity",
-      "humidity_high": "decrease_humidity",
-      "humidity_normal": "stop_humidity_adjustment"
+        "temperature_low": "start_heating",
+        "temperature_high": "start_cooling",
+        "temperature_normal": "stop_temperature_control",
+        "soil_moisture_low": "increase_watering",
+        "soil_moisture_high": "reduce_watering",
+        "soil_moisture_normal": "stop_watering_adjustment",
+        "humidity_low": "increase_humidity",
+        "humidity_high": "decrease_humidity",
+        "humidity_normal": "stop_humidity_adjustment"
     }
-  }
-    
+}

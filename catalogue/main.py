@@ -11,45 +11,11 @@ class CatalogueWebService:
     def __init__(self, catalogue_file):
         self.catalogue_file = catalogue_file
         self.lock = threading.RLock()
-        self.create_catalogue_file()
 
     # --------------------------------------------------
     # File management
     # --------------------------------------------------
-    def create_catalogue_file(self):
-        """Create the catalogue file only when it does not exist."""
-        if not os.path.exists(self.catalogue_file):
-            default_catalogue = {
-                "users": [],
-                "devices": [],
-                "services": [],
-                "config": {
-                    "project_name": "Smart Plant Care System",
-                    "mqtt_broker": "mosquitto",
-                    "mqtt_port": 1883,
-                    "sampling_interval": 60,
-                    "thresholds": {
-                        "temperature": {
-                            "min": 18,
-                            "max": 30
-                        },
-                        "soil_moisture": {
-                            "min": 30,
-                            "max": 80
-                        },
-                        "humidity": {
-                            "min": 40,
-                            "max": 80
-                        }
-                    }
-                }
-            }
-
-            with open(self.catalogue_file, "w", encoding="utf-8") as file:
-                json.dump(default_catalogue, file, indent=4)
-
     def load_catalogue(self):
-        """Read and return the complete catalogue."""
         try:
             with open(self.catalogue_file, "r", encoding="utf-8") as file:
                 return json.load(file)
@@ -57,12 +23,11 @@ class CatalogueWebService:
             return None
 
     def save_catalogue(self, catalogue):
-        """Write the complete catalogue to the JSON file."""
         with open(self.catalogue_file, "w", encoding="utf-8") as file:
             json.dump(catalogue, file, indent=4)
 
     # --------------------------------------------------
-    # Helper methods
+    # Helpers
     # --------------------------------------------------
     def current_time(self):
         return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
@@ -82,6 +47,22 @@ class CatalogueWebService:
             if item.get("id") == item_id:
                 return position
         return None
+
+    def check_catalogue(self):
+        catalogue = self.load_catalogue()
+
+        if catalogue is None:
+            return None, self.error_response(
+                500,
+                "The catalogue file cannot be read"
+            )
+
+        catalogue.setdefault("users", [])
+        catalogue.setdefault("devices", [])
+        catalogue.setdefault("services", [])
+        catalogue.setdefault("config", {})
+
+        return catalogue, None
 
     def validate_user(self, user):
         required_fields = ["id", "telegram_id", "name", "devices"]
@@ -105,7 +86,7 @@ class CatalogueWebService:
         ]
 
         for field in required_fields:
-            if field not in device or str(device[field]).strip() == "":
+            if field not in device or not str(device[field]).strip():
                 return f"Missing required field: {field}"
 
         return None
@@ -114,26 +95,37 @@ class CatalogueWebService:
         required_fields = ["id", "name", "type", "endpoint"]
 
         for field in required_fields:
-            if field not in service or str(service[field]).strip() == "":
+            if field not in service or not str(service[field]).strip():
                 return f"Missing required field: {field}"
 
         return None
 
-    def check_catalogue(self):
-        catalogue = self.load_catalogue()
+    def register_by_id(self, items, new_item):
+        """
+        Predictable POST registration:
+        - new id      -> create
+        - existing id -> refresh/update
+        """
+        position = self.find_position_by_id(items, new_item["id"])
+        now = self.current_time()
 
-        if catalogue is None:
-            return None, self.error_response(
-                500,
-                "The catalogue file cannot be read"
-            )
+        if position is None:
+            new_item.setdefault("status", "active")
+            new_item.setdefault("created_at", now)
+            new_item["last_update"] = now
+            items.append(new_item)
+            return "created", new_item
 
-        catalogue.setdefault("users", [])
-        catalogue.setdefault("devices", [])
-        catalogue.setdefault("services", [])
-        catalogue.setdefault("config", {})
+        existing_item = items[position]
+        updated_item = existing_item.copy()
+        updated_item.update(new_item)
 
-        return catalogue, None
+        updated_item["id"] = existing_item["id"]
+        updated_item["created_at"] = existing_item.get("created_at", now)
+        updated_item["last_update"] = now
+
+        items[position] = updated_item
+        return "updated", updated_item
 
     # --------------------------------------------------
     # GET
@@ -172,7 +164,7 @@ class CatalogueWebService:
 
             if "telegram_id" in params:
                 try:
-                    requested_telegram_id = int(params["telegram_id"])
+                    telegram_id = int(params["telegram_id"])
                 except (TypeError, ValueError):
                     return self.error_response(
                         400,
@@ -180,12 +172,12 @@ class CatalogueWebService:
                     )
 
                 for user in catalogue["users"]:
-                    if int(user.get("telegram_id", -1)) == requested_telegram_id:
+                    if int(user.get("telegram_id", -1)) == telegram_id:
                         return user
 
                 return self.error_response(
                     404,
-                    f"Telegram user '{requested_telegram_id}' not found"
+                    f"Telegram user '{telegram_id}' not found"
                 )
 
             if len(uri) == 2:
@@ -266,119 +258,91 @@ class CatalogueWebService:
         if len(uri) != 1:
             return self.error_response(404, "Invalid endpoint")
 
-        catalogue, error = self.check_catalogue()
-        if error:
-            return error
-
         resource = uri[0]
         new_item = cherrypy.request.json
 
         if not isinstance(new_item, dict):
-            return self.error_response(400, "The body must be a JSON object")
+            return self.error_response(
+                400,
+                "The body must be a JSON object"
+            )
 
-        # POST /users
-        if resource == "users":
-            validation_error = self.validate_user(new_item)
-            if validation_error:
-                return self.error_response(400, validation_error)
+        with self.lock:
+            catalogue, error = self.check_catalogue()
+            if error:
+                return error
 
-            if self.find_by_id(catalogue["users"], new_item["id"]) is not None:
-                return self.error_response(
-                    409,
-                    f"User '{new_item['id']}' already exists"
-                )
+            # POST /users
+            # Users are application data, not service/resource registration.
+            if resource == "users":
+                validation_error = self.validate_user(new_item)
 
-            new_item.setdefault("role", "user")
-            new_item.setdefault("status", "active")
-            catalogue["users"].append(new_item)
-            self.save_catalogue(catalogue)
+                if validation_error:
+                    return self.error_response(400, validation_error)
 
-            cherrypy.response.status = 201
-            return {
-                "message": "User created successfully",
-                "user": new_item
-            }
-
-        # POST /devices
-        if resource == "devices":
-            validation_error = self.validate_device(new_item)
-            if validation_error:
-                return self.error_response(400, validation_error)
-
-            if self.find_by_id(catalogue["devices"], new_item["id"]) is not None:
-                return self.error_response(
-                    409,
-                    f"Device '{new_item['id']}' already exists"
-                )
-
-            now = self.current_time()
-            new_item.setdefault("status", "active")
-            new_item.setdefault("created_at", now)
-            new_item.setdefault("last_update", now)
-
-            catalogue["devices"].append(new_item)
-            self.save_catalogue(catalogue)
-
-            cherrypy.response.status = 201
-            return {
-                "message": "Device created successfully",
-                "device": new_item
-            }
-
-        # POST /services
-        #
-        # Service registration is idempotent:
-        # - a new ID is appended once;
-        # - an existing ID is updated instead of being appended again.
-        if resource == "services":
-            validation_error = self.validate_service(new_item)
-            if validation_error:
-                return self.error_response(400, validation_error)
-
-            with self.lock:
-                catalogue, error = self.check_catalogue()
-                if error:
-                    return error
-
-                position = self.find_position_by_id(
-                    catalogue["services"],
+                if self.find_by_id(
+                    catalogue["users"],
                     new_item["id"]
-                )
+                ) is not None:
+                    return self.error_response(
+                        409,
+                        f"User '{new_item['id']}' already exists"
+                    )
 
-                now = self.current_time()
+                new_item.setdefault("role", "user")
                 new_item.setdefault("status", "active")
-
-                if position is None:
-                    new_item.setdefault("created_at", now)
-                    new_item["last_update"] = now
-                    catalogue["services"].append(new_item)
-                    self.save_catalogue(catalogue)
-
-                    cherrypy.response.status = 201
-                    return {
-                        "message": "Service registered successfully",
-                        "action": "created",
-                        "service": new_item
-                    }
-
-                existing_service = catalogue["services"][position]
-                updated_service = existing_service.copy()
-                updated_service.update(new_item)
-                updated_service["id"] = existing_service["id"]
-                updated_service["created_at"] = existing_service.get(
-                    "created_at",
-                    now
-                )
-                updated_service["last_update"] = now
-
-                catalogue["services"][position] = updated_service
+                catalogue["users"].append(new_item)
                 self.save_catalogue(catalogue)
 
-                cherrypy.response.status = 200
+                cherrypy.response.status = 201
                 return {
-                    "message": "Service registration refreshed",
-                    "action": "updated",
-                    "service": updated_service
+                    "message": "User created successfully",
+                    "action": "created",
+                    "user": new_item
+                }
+
+            # POST /devices
+            # Resources register here.
+            if resource == "devices":
+                validation_error = self.validate_device(new_item)
+
+                if validation_error:
+                    return self.error_response(400, validation_error)
+
+                action, device = self.register_by_id(
+                    catalogue["devices"],
+                    new_item
+                )
+
+                self.save_catalogue(catalogue)
+                cherrypy.response.status = 201 if action == "created" else 200
+
+                return {
+                    "message": f"Device {action} successfully",
+                    "action": action,
+                    "device": device
+                }
+
+            # POST /services
+            # Microservices register here.
+            if resource == "services":
+                validation_error = self.validate_service(new_item)
+
+                if validation_error:
+                    return self.error_response(400, validation_error)
+
+                action, service = self.register_by_id(
+                    catalogue["services"],
+                    new_item
+                )
+
+                self.save_catalogue(catalogue)
+                cherrypy.response.status = 201 if action == "created" else 200
+
+                return {
+                    "message": f"Service {action} successfully",
+                    "action": action,
+                    "service": service
                 }
 
         return self.error_response(
@@ -399,10 +363,16 @@ class CatalogueWebService:
         updated_fields = cherrypy.request.json
 
         if not isinstance(updated_fields, dict):
-            return self.error_response(400, "The body must be a JSON object")
+            return self.error_response(
+                400,
+                "The body must be a JSON object"
+            )
 
         if len(uri) == 0:
-            return self.error_response(400, "Resource path is required")
+            return self.error_response(
+                400,
+                "Resource path is required"
+            )
 
         resource = uri[0]
 
@@ -429,7 +399,10 @@ class CatalogueWebService:
 
         # PUT /users/<user_id>
         if resource == "users":
-            position = self.find_position_by_id(catalogue["users"], item_id)
+            position = self.find_position_by_id(
+                catalogue["users"],
+                item_id
+            )
 
             if position is None:
                 return self.error_response(
@@ -447,6 +420,7 @@ class CatalogueWebService:
 
             user.setdefault("role", "user")
             user.setdefault("status", "active")
+
             catalogue["users"][position] = user
             self.save_catalogue(catalogue)
 
@@ -457,7 +431,10 @@ class CatalogueWebService:
 
         # PUT /devices/<device_id>
         if resource == "devices":
-            position = self.find_position_by_id(catalogue["devices"], item_id)
+            position = self.find_position_by_id(
+                catalogue["devices"],
+                item_id
+            )
 
             if position is None:
                 return self.error_response(
@@ -474,6 +451,7 @@ class CatalogueWebService:
                 return self.error_response(400, validation_error)
 
             device["last_update"] = self.current_time()
+
             catalogue["devices"][position] = device
             self.save_catalogue(catalogue)
 
@@ -484,7 +462,10 @@ class CatalogueWebService:
 
         # PUT /services/<service_id>
         if resource == "services":
-            position = self.find_position_by_id(catalogue["services"], item_id)
+            position = self.find_position_by_id(
+                catalogue["services"],
+                item_id
+            )
 
             if position is None:
                 return self.error_response(
@@ -501,6 +482,7 @@ class CatalogueWebService:
                 return self.error_response(400, validation_error)
 
             service["last_update"] = self.current_time()
+
             catalogue["services"][position] = service
             self.save_catalogue(catalogue)
 
@@ -525,72 +507,82 @@ class CatalogueWebService:
                 "The resource ID is required in the URL"
             )
 
-        catalogue, error = self.check_catalogue()
-        if error:
-            return error
+        with self.lock:
+            catalogue, error = self.check_catalogue()
+            if error:
+                return error
 
-        resource = uri[0]
-        item_id = uri[1]
+            resource = uri[0]
+            item_id = uri[1]
 
-        # DELETE /users/<user_id>
-        if resource == "users":
-            position = self.find_position_by_id(catalogue["users"], item_id)
-
-            if position is None:
-                return self.error_response(
-                    404,
-                    f"User '{item_id}' not found"
+            # DELETE /users/<user_id>
+            if resource == "users":
+                position = self.find_position_by_id(
+                    catalogue["users"],
+                    item_id
                 )
 
-            deleted_user = catalogue["users"].pop(position)
-            self.save_catalogue(catalogue)
+                if position is None:
+                    return self.error_response(
+                        404,
+                        f"User '{item_id}' not found"
+                    )
 
-            return {
-                "message": "User deleted successfully",
-                "user": deleted_user
-            }
+                deleted_user = catalogue["users"].pop(position)
+                self.save_catalogue(catalogue)
 
-        # DELETE /devices/<device_id>
-        if resource == "devices":
-            position = self.find_position_by_id(catalogue["devices"], item_id)
+                return {
+                    "message": "User deleted successfully",
+                    "user": deleted_user
+                }
 
-            if position is None:
-                return self.error_response(
-                    404,
-                    f"Device '{item_id}' not found"
+            # DELETE /devices/<device_id>
+            if resource == "devices":
+                position = self.find_position_by_id(
+                    catalogue["devices"],
+                    item_id
                 )
 
-            deleted_device = catalogue["devices"].pop(position)
+                if position is None:
+                    return self.error_response(
+                        404,
+                        f"Device '{item_id}' not found"
+                    )
 
-            # Remove the deleted device from every user.
-            for user in catalogue["users"]:
-                if item_id in user.get("devices", []):
-                    user["devices"].remove(item_id)
+                deleted_device = catalogue["devices"].pop(position)
 
-            self.save_catalogue(catalogue)
+                # Keep the user-device correlation consistent.
+                for user in catalogue["users"]:
+                    if item_id in user.get("devices", []):
+                        user["devices"].remove(item_id)
 
-            return {
-                "message": "Device deleted successfully",
-                "device": deleted_device
-            }
+                self.save_catalogue(catalogue)
 
-        # DELETE /services/<service_id>
-        if resource == "services":
-            position = self.find_position_by_id(catalogue["services"], item_id)
+                return {
+                    "message": "Device deleted successfully",
+                    "device": deleted_device
+                }
 
-            if position is None:
-                return self.error_response(
-                    404,
-                    f"Service '{item_id}' not found"
+            # DELETE /services/<service_id>
+            if resource == "services":
+                position = self.find_position_by_id(
+                    catalogue["services"],
+                    item_id
                 )
 
-            deleted_service = catalogue["services"].pop(position)
-            self.save_catalogue(catalogue)
+                if position is None:
+                    return self.error_response(
+                        404,
+                        f"Service '{item_id}' not found"
+                    )
 
-            return {
-                "message": "Service deleted successfully",
-                "service": deleted_service
-            }
+                deleted_service = catalogue["services"].pop(position)
+                self.save_catalogue(catalogue)
+
+                return {
+                    "message": "Service deleted successfully",
+                    "service": deleted_service
+                }
 
         return self.error_response(
             405,
@@ -599,9 +591,17 @@ class CatalogueWebService:
 
 
 if __name__ == "__main__":
-    catalogue_file = os.environ.get("CATALOG_FILE", "catalog.json")
-    host = os.environ.get("CATALOG_HOST", "0.0.0.0")
-    port = int(os.environ.get("CATALOG_PORT", 8000))
+    # The file path is the only bootstrap value.
+    # Docker Compose already provides CATALOG_FILE.
+    catalogue_file = os.environ.get(
+        "CATALOG_FILE",
+        "/app/data/catalog.json"
+    )
+
+    with open(catalogue_file, "r", encoding="utf-8") as file:
+        initial_catalogue = json.load(file)
+
+    catalogue_settings = initial_catalogue["config"]["catalogue"]
 
     configuration = {
         "/": {
@@ -611,9 +611,9 @@ if __name__ == "__main__":
     }
 
     cherrypy.config.update({
-        "server.socket_host": host,
-        "server.socket_port": port,
-        "log.screen": True
+        "server.socket_host": catalogue_settings["host"],
+        "server.socket_port": catalogue_settings["port"],
+        "log.screen": catalogue_settings["log_screen"]
     })
 
     web_service = CatalogueWebService(catalogue_file)

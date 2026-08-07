@@ -1,4 +1,5 @@
 services:
+
   catalogue:
     build: ./catalogue
     container_name: catalogue
@@ -7,8 +8,6 @@ services:
     volumes:
       - ./catalogue/data:/app/data
     environment:
-      CATALOG_HOST: 0.0.0.0
-      CATALOG_PORT: 8000
       CATALOG_FILE: /app/data/catalog.json
     restart: unless-stopped
 
@@ -37,28 +36,18 @@ services:
       - mosquitto
       - catalogue
     restart: unless-stopped
+
   analytics:
     build: ./analytics
     container_name: analytics
-    env_file:
-      - .env
     environment:
-      SERVICE_ID: analytics
-      SERVICE_NAME: Analytics Service
-      SERVICE_TYPE: analytics
-      SERVICE_HOST: 0.0.0.0
-      SERVICE_PORT: 8090
       CONFIG_FILE: /app/config.json
-      CATALOG_URL: http://catalogue:8000
-      REGISTRATION_RETRY_DELAY: 5
-      THRESHOLD_REFRESH_INTERVAL: 60
-      MQTT_BROKER: mosquitto
-      MQTT_PORT: 1883
     ports:
       - "8090:8090"
     depends_on:
       - catalogue
       - mosquitto
+      - thingspeak-adapter
     restart: unless-stopped
   alert-generator:
     build:
