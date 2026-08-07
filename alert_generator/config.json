@@ -1,10 +1,18 @@
 {
-  "mqtt": {
+  "service_id": "alert-generator",
+  "service_name": "Alert Generator",
+  "service_type": "alert_generator",
+  "service_host": "0.0.0.0",
+  "service_port": 8091,
+  "catalog_url": "http://catalogue:8000",
+  "thingspeak_adapter_url": "http://thingspeak-adapter:8080",
+  "default_results": 20,
+  "mqtt_info": {
+    "clientID": "alert-generator-01",
+    "broker": "mosquitto",
+    "port": 1883,
     "sensor_topic": "smartplant/sensors/#",
     "analysis_topic": "smartplant/analysis/#",
     "alert_topic_base": "smartplant/alerts"
-  },
-  "report": {
-    "default_results": 20
   }
 }
