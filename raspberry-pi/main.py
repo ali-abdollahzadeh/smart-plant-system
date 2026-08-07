@@ -9,33 +9,50 @@ from simulator import PlantSimulator
 
 class SensorNode:
 
-    def __init__(self, id, sub_topic, pub_topic, broker, port):
-        self.id = id
-        self.sub_topic = sub_topic
-        self.pub_topic = pub_topic
-        self.broker = broker
-        self.port = port
+    def __init__(self, config_file="config.json"):
+        self.config_file = os.environ.get("CONFIG_FILE", config_file)
+        self.config = self.load_config(self.config_file)
 
-        # Additional configurations with defaults
-        self.device_name = os.environ.get("DEVICE_NAME", "Plant Sensor Node 1")
-        self.device_type = os.environ.get("DEVICE_TYPE", "sensor_node")
-        self.catalog_url = os.environ.get("CATALOG_URL", "http://catalogue:8000")
-        self.publish_interval = int(os.environ.get("PUBLISH_INTERVAL", 10))
-        self.registration_retry_delay = int(os.environ.get("REGISTRATION_RETRY_DELAY", 5))
+        # Load configuration parameters from config.json with environment variable overrides
+        self.id = os.environ.get("DEVICE_ID", self.config.get("device_id", "raspi-01"))
+        self.device_name = os.environ.get("DEVICE_NAME", self.config.get("device_name", "Plant Sensor Node 1"))
+        self.device_type = os.environ.get("DEVICE_TYPE", self.config.get("device_type", "sensor_node"))
+        self.catalog_url = os.environ.get("CATALOG_URL", self.config.get("catalog_url", "http://catalogue:8000")).rstrip("/")
+        self.publish_interval = int(os.environ.get("PUBLISH_INTERVAL", self.config.get("publish_interval", 10)))
+        self.registration_retry_delay = int(os.environ.get("REGISTRATION_RETRY_DELAY", self.config.get("registration_retry_delay", 5)))
+
+        mqtt_info = self.config.get("mqtt_info", {})
+        self.broker = os.environ.get("MQTT_BROKER", mqtt_info.get("broker", "mosquitto"))
+        self.port = int(os.environ.get("MQTT_PORT", mqtt_info.get("port", 1883)))
+
+        sensor_topic_base = os.environ.get("MQTT_TOPIC_BASE", mqtt_info.get("sensor_topic_base", "smartplant/sensors"))
+        command_topic_base = os.environ.get("MQTT_COMMAND_TOPIC_BASE", mqtt_info.get("command_topic_base", "smartplant/commands"))
 
         # Dynamic Topics
-        self.sensor_topic = f"{self.sub_topic}/{self.id}"
-        self.command_topic = f"{self.pub_topic}/{self.id}"
+        self.sensor_topic = f"{sensor_topic_base}/{self.id}"
+        self.command_topic = f"{command_topic_base}/{self.id}"
 
         self.running = True
         self.mqtt_connected = False
         self.simulator = PlantSimulator(self.id)
 
-        # MQTT Setup
-        self.mqtt_client = mqtt.Client(client_id=self.id, clean_session=True)
+        # MQTT Setup with unique client ID
+        client_id = f"rpi-{self.id}"
+        self.mqtt_client = mqtt.Client(client_id=client_id, clean_session=True)
         self.mqtt_client.on_connect = self.on_mqtt_connect
         self.mqtt_client.on_disconnect = self.on_mqtt_disconnect
         self.mqtt_client.on_message = self.on_mqtt_message
+
+    def load_config(self, config_path):
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception as e:
+                print(f"[CONFIG] Warning: Failed to load config file '{config_path}': {e}")
+        else:
+            print(f"[CONFIG] Warning: Config file '{config_path}' not found. Using default settings.")
+        return {}
 
     # =========================================================================
     # Catalogue Registration
@@ -156,6 +173,7 @@ class SensorNode:
     # =========================================================================
     def run(self):
         print("[START] Raspberry Pi sensor node started")
+        print(f"[INFO] Config File: {self.config_file}")
         print(f"[INFO] Device ID: {self.id}")
         print(f"[INFO] Catalogue URL: {self.catalog_url}")
         print(f"[INFO] MQTT Broker: {self.broker}:{self.port}")
@@ -180,11 +198,5 @@ class SensorNode:
 
 
 if __name__ == "__main__":
-    node = SensorNode(
-        id=os.environ.get("DEVICE_ID", "raspi-01"),
-        sub_topic=os.environ.get("MQTT_TOPIC_BASE", "smartplant/sensors"),
-        pub_topic=os.environ.get("MQTT_COMMAND_TOPIC_BASE", "smartplant/commands"),
-        broker=os.environ.get("MQTT_BROKER", "mosquitto"),
-        port=int(os.environ.get("MQTT_PORT", 1883))
-    )
+    node = SensorNode(config_file="config.json")
     node.run()

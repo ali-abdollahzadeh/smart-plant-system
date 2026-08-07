@@ -1,0 +1,14 @@
+{
+  "device_id": "raspi-01",
+  "device_name": "Plant Sensor Node 1",
+  "device_type": "sensor_node",
+  "catalog_url": "http://catalogue:8000",
+  "publish_interval": 10,
+  "registration_retry_delay": 5,
+  "mqtt_info": {
+    "broker": "mosquitto",
+    "port": 1883,
+    "sensor_topic_base": "smartplant/sensors",
+    "command_topic_base": "smartplant/commands"
+  }
+}
