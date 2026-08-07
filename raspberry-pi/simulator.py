@@ -10,12 +10,21 @@ def now_utc_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 class PlantSimulator:
-    def __init__(self, device_id: str) -> None:
+    def __init__(self, device_id: str, sim_config: Dict[str, Any] = None) -> None:
         self.device_id = device_id
         self.state_lock = threading.Lock()
         
+        sim_config = sim_config or {}
+        self.base_temp = float(sim_config.get("base_temperature", 24.0))
+        self.temp_amplitude = float(sim_config.get("temperature_amplitude", 5.5))
+        self.base_humidity = float(sim_config.get("base_humidity", 60.0))
+        self.hum_amplitude = float(sim_config.get("humidity_amplitude", 12.0))
+        self.soil_decay_rate = float(sim_config.get("soil_decay_rate", 0.25))
+        
+        initial_moisture = float(sim_config.get("initial_soil_moisture", random.uniform(25.0, 60.0)))
+
         # Simulated environment state
-        self.soil_moisture_value = random.uniform(25.0, 90.0)
+        self.soil_moisture_value = initial_moisture
         self.temperature_bias = 0.0
         self.humidity_bias = 0.0
         self.last_sensor_update = time.time()
@@ -33,13 +42,8 @@ class PlantSimulator:
 
     def day_fraction(self) -> float:
         now = datetime.now()
-        seconds_today = 0
-        seconds_today += now.hour * 3600
-        seconds_today += now.minute * 60
-        seconds_today += now.second
-        fraction = seconds_today / 86400
-
-        return fraction
+        seconds_today = now.hour * 3600 + now.minute * 60 + now.second
+        return seconds_today / 86400
 
     def update_environment_state(self) -> None:
         now_ts = time.time()
@@ -50,8 +54,7 @@ class PlantSimulator:
 
         with self.state_lock:
             # Soil moisture naturally decays
-            natural_decay_per_10s = 0.25
-            decay = natural_decay_per_10s * elapsed_factor
+            decay = self.soil_decay_rate * elapsed_factor
 
             if self.control_state["watering"] == "increase_requested":
                 self.soil_moisture_value += 2.0 * elapsed_factor
@@ -84,7 +87,7 @@ class PlantSimulator:
 
     def read_temperature(self) -> float:
         frac = self.day_fraction()
-        base = 24.0 + 5.5 * math.sin(2 * math.pi * frac)
+        base = self.base_temp + self.temp_amplitude * math.sin(2 * math.pi * frac)
         noise = random.uniform(-0.6, 0.6)
 
         with self.state_lock:
@@ -101,7 +104,7 @@ class PlantSimulator:
 
     def read_humidity(self) -> float:
         frac = self.day_fraction()
-        base = 60.0 - 12.0 * math.sin(2 * math.pi * frac)
+        base = self.base_humidity - self.hum_amplitude * math.sin(2 * math.pi * frac)
         noise = random.uniform(-1.5, 1.5)
 
         with self.state_lock:
@@ -111,13 +114,26 @@ class PlantSimulator:
 
     def collect_data(self) -> Dict[str, Any]:
         self.update_environment_state()
+        temp = self.read_temperature()
+        soil = self.read_soil_moisture()
+        hum = self.read_humidity()
+        ts_iso = now_utc_iso()
+        ts_epoch = time.time()
 
         return {
+            "bn": self.device_id,
+            "bt": ts_epoch,
+            "e": [
+                {"n": "temperature", "v": temp, "u": "Cel"},
+                {"n": "soil_moisture", "v": soil, "u": "%RH"},
+                {"n": "humidity", "v": hum, "u": "%RH"}
+            ],
+            # Flat attributes for backward compatibility
             "device_id": self.device_id,
-            "temperature": self.read_temperature(),
-            "soil_moisture": self.read_soil_moisture(),
-            "humidity": self.read_humidity(),
-            "timestamp": now_utc_iso()
+            "temperature": temp,
+            "soil_moisture": soil,
+            "humidity": hum,
+            "timestamp": ts_iso
         }
 
     def handle_command(self, command_payload: Dict[str, Any]) -> None:

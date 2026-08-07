@@ -1,14 +1,20 @@
 {
   "device_id": "raspi-01",
-  "device_name": "Plant Sensor Node 1",
-  "device_type": "sensor_node",
   "catalog_url": "http://catalogue:8000",
   "publish_interval": 10,
-  "registration_retry_delay": 5,
   "mqtt_info": {
+    "clientID": "rpi-raspi-01",
     "broker": "mosquitto",
     "port": 1883,
     "sensor_topic_base": "smartplant/sensors",
     "command_topic_base": "smartplant/commands"
+  },
+  "simulation": {
+    "base_temperature": 24.0,
+    "temperature_amplitude": 5.5,
+    "base_humidity": 60.0,
+    "humidity_amplitude": 12.0,
+    "initial_soil_moisture": 45.0,
+    "soil_decay_rate": 0.25
   }
 }

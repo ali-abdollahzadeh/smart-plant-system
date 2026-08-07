@@ -21,34 +21,38 @@ def now_utc_iso():
 class AlertGeneratorService:
     exposed = True
 
-    def __init__(self, id, sub_topic, pub_topic, broker, port, config_file="/app/config.json", analysis_topic=None):
-        # Explicit Professor-style parameters
-        self.id = id
-        self.sub_topic = sub_topic
-        self.pub_topic = pub_topic
+    def __init__(
+        self,
+        service_id,
+        service_name,
+        service_type,
+        service_host,
+        service_port,
+        catalog_url,
+        thingspeak_adapter_url,
+        default_results,
+        client_id,
+        broker,
+        port,
+        sub_topic,
+        analysis_topic,
+        pub_topic
+    ):
+        self.id = service_id
+        self.service_name = service_name
+        self.service_type = service_type
+        self.service_host = service_host
+        self.service_port = service_port
+        self.catalog_url = catalog_url.rstrip("/")
+        self.thingspeak_adapter_url = thingspeak_adapter_url.rstrip("/")
+        self.default_results = default_results
+
+        self.client_id = client_id
         self.broker = broker
         self.port = port
-        self.config_file = config_file
-
-        # Additional Service configurations
-        self.service_name = os.environ.get("SERVICE_NAME", "Alert Generator")
-        self.service_type = os.environ.get("SERVICE_TYPE", "alert_generator")
-        self.service_host = os.environ.get("SERVICE_HOST", "0.0.0.0")
-        self.service_port = int(os.environ.get("SERVICE_PORT", 8091))
-        
-        self.catalog_url = os.environ.get("CATALOG_URL", "http://catalogue:8000")
-        self.registration_retry_delay = int(os.environ.get("REGISTRATION_RETRY_DELAY", 5))
-        self.thingspeak_adapter_url = os.environ.get("THINGSPEAK_ADAPTER_URL", "http://thingspeak-adapter:8080")
-
-        # Load configuration file
-        with open(self.config_file, "r", encoding="utf-8") as file:
-            self.config = json.load(file)
-
-        self.analysis_topic = analysis_topic or os.environ.get(
-            "MQTT_ANALYSIS_TOPIC",
-            self.config.get("mqtt", {}).get("analysis_topic", "smartplant/analysis/#")
-        )
-        self.default_results = self.config.get("report", {}).get("default_results", 20)
+        self.sub_topic = sub_topic
+        self.analysis_topic = analysis_topic
+        self.pub_topic = pub_topic
 
         # State Initialization
         self.lock = threading.RLock()
@@ -57,7 +61,7 @@ class AlertGeneratorService:
 
         # MQTT Client Setup
         self.mqtt_connected = False
-        self.mqtt_client = mqtt.Client(client_id=self.id, clean_session=True)
+        self.mqtt_client = mqtt.Client(client_id=self.client_id, clean_session=True)
         self.mqtt_client.on_connect = self.on_mqtt_connect
         self.mqtt_client.on_disconnect = self.on_mqtt_disconnect
         self.mqtt_client.on_message = self.on_mqtt_message
@@ -416,21 +420,46 @@ class AlertGeneratorService:
 # 4. MAIN ENTRY POINT
 # =============================================================================
 if __name__ == "__main__":
+    settings = json.load(open("config.json"))
+
+    service_id = settings["service_id"]
+    service_name = settings["service_name"]
+    service_type = settings["service_type"]
+    service_host = settings["service_host"]
+    service_port = settings["service_port"]
+    catalog_url = settings["catalog_url"]
+    thingspeak_adapter_url = settings["thingspeak_adapter_url"]
+    default_results = settings["default_results"]
+
+    client_id = settings["mqtt_info"]["clientID"]
+    broker = settings["mqtt_info"]["broker"]
+    port = settings["mqtt_info"]["port"]
+    sub_topic = settings["mqtt_info"]["sensor_topic"]
+    analysis_topic = settings["mqtt_info"]["analysis_topic"]
+    pub_topic = settings["mqtt_info"]["alert_topic_base"]
+
     service = AlertGeneratorService(
-        id=os.environ.get("SERVICE_ID", "alert-generator"),
-        sub_topic=os.environ.get("MQTT_SUB_TOPIC", "smartplant/sensors/#"),
-        pub_topic=os.environ.get("MQTT_PUB_TOPIC", "smartplant/alerts"),
-        broker=os.environ.get("MQTT_BROKER", "mosquitto"),
-        port=int(os.environ.get("MQTT_PORT", 1883)),
-        config_file=os.environ.get("CONFIG_FILE", "/app/config.json")
+        service_id=service_id,
+        service_name=service_name,
+        service_type=service_type,
+        service_host=service_host,
+        service_port=service_port,
+        catalog_url=catalog_url,
+        thingspeak_adapter_url=thingspeak_adapter_url,
+        default_results=default_results,
+        client_id=client_id,
+        broker=broker,
+        port=port,
+        sub_topic=sub_topic,
+        analysis_topic=analysis_topic,
+        pub_topic=pub_topic
     )
+    service.start()
 
     print("[START] Alert Generator starting...")
     print(f"[INFO] Service ID: {service.id}")
     print(f"[INFO] MQTT Broker: {service.broker}:{service.port}")
-    print(f"[INFO] Sensor Subscribed Topic: {service.sub_topic}")
-    print(f"[INFO] Analysis Subscribed Topic: {service.analysis_topic}")
-    print(f"[INFO] Alert Topic Base: {service.pub_topic}")
+    print(f"[INFO] Subscribed Topics: {service.sub_topic}, {service.analysis_topic}")
 
     service.start()
 
