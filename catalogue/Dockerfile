@@ -4,12 +4,13 @@ WORKDIR /app
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    CATALOG_FILE=/app/data/catalog.json
+    CONFIG_FILE=/app/config.json
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY main.py .
+COPY config.json .
 
 RUN mkdir -p /app/data
 

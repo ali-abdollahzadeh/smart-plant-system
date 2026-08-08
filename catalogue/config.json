@@ -1,0 +1,29 @@
+{
+  "catalogue_file": "/app/data/catalog.json",
+
+  "server": {
+    "host": "0.0.0.0",
+    "port": 8000,
+    "log_screen": true
+  },
+
+  "mqtt": {
+    "broker": "mosquitto",
+    "port": 1883
+  },
+
+  "thresholds": {
+    "temperature": {
+      "min": 18,
+      "max": 30
+    },
+    "soil_moisture": {
+      "min": 30,
+      "max": 80
+    },
+    "humidity": {
+      "min": 40,
+      "max": 80
+    }
+  }
+}
