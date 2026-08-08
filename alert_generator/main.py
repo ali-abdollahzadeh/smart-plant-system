@@ -154,6 +154,8 @@ class AlertGeneratorService:
         sensor_data["_received_at"] = now_utc_iso()
 
         with self.lock:
+            current_status = self.latest_data.get(device_id, {}).get("status", "active")
+            sensor_data["status"] = current_status
             self.latest_data[device_id] = sensor_data
 
         print(f"[MQTT] Received sensor telemetry from {device_id}: {sensor_data}")
@@ -170,7 +172,7 @@ class AlertGeneratorService:
         # Update latest_data device status if known
         with self.lock:
             if device_id in self.latest_data:
-                self.latest_data[device_id]["status"] = "warning" if state in ("low", "high") else "normal"
+                self.latest_data[device_id]["status"] = "warning" if state in ("low", "high") else "active"
 
         # Only generate alerts for "low" or "high" threshold violations
         if state not in ("low", "high"):
@@ -264,7 +266,10 @@ class AlertGeneratorService:
             telemetry = latest.get(device_id)
 
             if telemetry:
-                merged[device_id] = telemetry
+                merged_item = dict(telemetry)
+                if not merged_item.get("status"):
+                    merged_item["status"] = c_device.get("status", "active")
+                merged[device_id] = merged_item
             else:
                 merged[device_id] = {
                     "device_id": device_id,
@@ -279,7 +284,10 @@ class AlertGeneratorService:
 
         for device_id, telemetry in latest.items():
             if device_id not in merged:
-                merged[device_id] = telemetry
+                merged_item = dict(telemetry)
+                if not merged_item.get("status"):
+                    merged_item["status"] = "active"
+                merged[device_id] = merged_item
 
         return merged
 
@@ -454,7 +462,6 @@ if __name__ == "__main__":
         analysis_topic=analysis_topic,
         pub_topic=pub_topic
     )
-    service.start()
 
     print("[START] Alert Generator starting...")
     print(f"[INFO] Service ID: {service.id}")

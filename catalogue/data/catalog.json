@@ -26,43 +26,43 @@
     "devices": [
         {
             "id": "raspi-02",
-            "name": "Plant Sensor Node 2",
+            "name": "Plant Sensor Node raspi-02",
             "type": "sensor_node",
             "mqtt_topic": "smartplant/sensors/raspi-02",
             "command_topic": "smartplant/commands/raspi-02",
             "status": "active",
             "created_at": "2026-03-08T18:20:11+00:00",
-            "last_update": "2026-08-07T19:35:18+00:00"
+            "last_update": "2026-08-08T10:32:09+00:00"
         },
         {
             "id": "raspi-01",
-            "name": "Plant Sensor Node 1",
+            "name": "Plant Sensor Node raspi-01",
             "type": "sensor_node",
             "mqtt_topic": "smartplant/sensors/raspi-01",
             "command_topic": "smartplant/commands/raspi-01",
             "status": "active",
             "created_at": "2026-03-08T18:20:12+00:00",
-            "last_update": "2026-08-07T19:35:18+00:00"
+            "last_update": "2026-08-08T10:32:09+00:00"
         },
         {
             "id": "raspi-03",
-            "name": "Plant Sensor Node 3",
+            "name": "Plant Sensor Node raspi-03",
             "type": "sensor_node",
             "mqtt_topic": "smartplant/sensors/raspi-03",
             "command_topic": "smartplant/commands/raspi-03",
             "status": "active",
             "created_at": "2026-03-08T18:20:12+00:00",
-            "last_update": "2026-08-07T19:35:13+00:00"
+            "last_update": "2026-08-08T10:32:10+00:00"
         },
         {
             "id": "raspi-04",
-            "name": "Plant Sensor Node 4",
+            "name": "Plant Sensor Node raspi-04",
             "type": "sensor_node",
             "mqtt_topic": "smartplant/sensors/raspi-04",
             "command_topic": "smartplant/commands/raspi-04",
             "status": "active",
             "created_at": "2026-03-08T18:20:12+00:00",
-            "last_update": "2026-08-07T19:35:13+00:00"
+            "last_update": "2026-08-08T10:32:09+00:00"
         }
     ],
     "services": [
@@ -73,7 +73,7 @@
             "endpoint": "http://thingspeak-adapter:8080",
             "status": "active",
             "created_at": "2026-03-08T18:20:07+00:00",
-            "last_update": "2026-08-07T17:42:01+00:00"
+            "last_update": "2026-08-08T10:47:10+00:00"
         },
         {
             "id": "alert-generator",
@@ -82,7 +82,7 @@
             "endpoint": "http://alert-generator:8091",
             "status": "active",
             "created_at": "2026-03-08T18:20:08+00:00",
-            "last_update": "2026-08-07T17:42:01+00:00"
+            "last_update": "2026-08-08T10:32:11+00:00"
         },
         {
             "id": "telegram-bot",
@@ -91,7 +91,7 @@
             "endpoint": "telegram-bot",
             "status": "active",
             "created_at": "2026-03-09T16:41:58+00:00",
-            "last_update": "2026-08-07T17:42:01+00:00"
+            "last_update": "2026-08-08T10:47:10+00:00"
         },
         {
             "id": "analytics",
@@ -100,7 +100,7 @@
             "endpoint": "http://analytics:8090",
             "status": "active",
             "created_at": "2026-03-09T16:41:58+00:00",
-            "last_update": "2026-08-07T17:43:00+00:00"
+            "last_update": "2026-08-08T10:32:10+00:00"
         },
         {
             "id": "nodered",
