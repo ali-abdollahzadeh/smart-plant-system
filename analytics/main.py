@@ -47,6 +47,7 @@ class AnalyticsService:
         self.mqtt_config = config["mqtt"]
         self.analytics_config = config["analytics"]
         self.commands = config["commands"]
+        self.llm_config = config.get("llm", {})
 
         self.lock = threading.RLock()
 
@@ -624,6 +625,9 @@ class AnalyticsService:
                 "timestamp": self.now_utc_iso(),
             }
 
+            # Add LLM interpretation after the historical statistics.
+            payload["llm"] = self.interpret_with_llm(payload)
+
             with self.lock:
                 self.analysis_history.append(payload)
                 self.analysis_history = (
@@ -684,6 +688,73 @@ class AnalyticsService:
             self.last_historical_analysis[
                 device_id
             ] = time.time()
+
+    # --------------------------------------------------
+    # LLM interpretation
+    # --------------------------------------------------
+    def interpret_with_llm(self, historical_payload):
+        """
+        Interpret the deterministic historical statistics with
+        the local Ollama model. The LLM never replaces the
+        numerical analytics.
+        """
+        if not self.llm_config.get("enabled", False):
+            return {
+                "enabled": False,
+                "interpretation": None
+            }
+
+        llm_input = {
+            "device_id": historical_payload["device_id"],
+            "analysis_type": historical_payload["analysis_type"],
+            "history_source": historical_payload["history_source"],
+            "sensors": historical_payload["sensors"]
+        }
+
+        prompt = (
+            self.llm_config["instructions"]
+            + "\n\nHistorical analytics:\n"
+            + json.dumps(llm_input, indent=2)
+        )
+
+        try:
+            response = requests.post(
+                f'{self.llm_config["url"]}/api/generate',
+                json={
+                    "model": self.llm_config["model"],
+                    "prompt": prompt,
+                    "stream": False
+                },
+                timeout=self.llm_config["timeout"]
+            )
+            response.raise_for_status()
+
+            result = response.json()
+            interpretation = result.get("response", "").strip()
+
+            return {
+                "enabled": True,
+                "provider": "ollama",
+                "model": self.llm_config["model"],
+                "interpretation": interpretation,
+                "timestamp": self.now_utc_iso()
+            }
+
+        except (
+            requests.RequestException,
+            ValueError,
+            json.JSONDecodeError
+        ) as error:
+            print(f"[LLM] Ollama interpretation error: {error}")
+
+            return {
+                "enabled": True,
+                "provider": "ollama",
+                "model": self.llm_config.get("model"),
+                "interpretation": None,
+                "error": str(error),
+                "timestamp": self.now_utc_iso()
+            }
 
     # --------------------------------------------------
     # REST

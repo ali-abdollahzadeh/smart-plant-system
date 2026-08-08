@@ -1,5 +1,6 @@
 services:
 
+
   catalogue:
     build: ./catalogue
     container_name: catalogue
@@ -38,17 +39,27 @@ services:
     restart: unless-stopped
 
   analytics:
-    build: ./analytics
-    container_name: analytics
-    environment:
-      CONFIG_FILE: /app/config.json
-    ports:
-      - "8090:8090"
-    depends_on:
-      - catalogue
-      - mosquitto
-      - thingspeak-adapter
-    restart: unless-stopped
+     build: ./analytics
+     container_name: analytics
+     environment:
+       CONFIG_FILE: /app/config.json
+     ports:
+        - "8090:8090"
+     depends_on:
+     - catalogue
+     - mosquitto
+     - thingspeak-adapter
+     - ollama
+     restart: unless-stopped
+
+  ollama:
+     image: ollama/ollama:latest
+     container_name: ollama
+     ports:
+          - "11434:11434"
+     volumes:
+          - ollama_data:/root/.ollama
+     restart: unless-stopped
   alert-generator:
     build:
       context: .
@@ -210,3 +221,5 @@ services:
       - catalogue
       - mosquitto
     restart: unless-stopped
+volumes:
+  ollama_data:

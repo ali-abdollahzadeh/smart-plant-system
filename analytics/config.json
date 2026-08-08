@@ -41,5 +41,13 @@
         "humidity_low": "increase_humidity",
         "humidity_high": "decrease_humidity",
         "humidity_normal": "stop_humidity_adjustment"
+    },
+    "llm": {
+        "enabled": true,
+        "provider": "ollama",
+        "url": "http://ollama:11434",
+        "model": "gemma3:1b",
+        "timeout": 120,
+        "instructions": "You are an IoT plant-care analytics assistant. Interpret only the supplied historical statistical results. Do not invent measurements or diagnoses. Briefly explain important trends, anomalies, and practical monitoring recommendations."
     }
 }
