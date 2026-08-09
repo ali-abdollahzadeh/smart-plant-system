@@ -24,19 +24,26 @@ services:
     restart: unless-stopped
 
   thingspeak-adapter:
-    build: ./thingspeak_adapter
-    container_name: thingspeak-adapter
-    volumes:
-      - ./thingspeak_adapter/data:/app/data
-    env_file:
-      - .env
-    environment:
-      CONFIG_FILE: /app/config.json
-      REGISTRY_FILE: /app/data/channel_registry.json
-    depends_on:
-      - mosquitto
-      - catalogue
-    restart: unless-stopped
+   build: ./thingspeak_adapter
+   container_name: thingspeak-adapter
+
+   volumes:
+    - ./thingspeak_adapter/data:/app/data
+
+   env_file:
+    - .env
+
+   environment:
+    CONFIG_FILE: /app/config.json
+
+   ports:
+    - "8080:8080"
+
+   depends_on:
+    - mosquitto
+    - catalogue
+
+   restart: unless-stopped
 
   analytics:
      build: ./analytics
