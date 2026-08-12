@@ -13,8 +13,13 @@ import paho.mqtt.client as mqtt
 
 class TelegramPlantBot:
     def __init__(self) -> None:
+        config_file = os.environ.get("CONFIG_FILE", "/app/config.json")
+        self.config = self.load_json(config_file)
         self.runtime = self.load_runtime_config()
-        self.config = self.load_json(self.runtime["config_file"])
+        self.runtime["telegram_bot_token"] = os.environ.get(
+            "TELEGRAM_BOT_TOKEN",
+            self.runtime.get("telegram_bot_token", "")
+        )
 
         token = self.runtime["telegram_bot_token"]
         if not token:
@@ -35,23 +40,10 @@ class TelegramPlantBot:
             return json.load(f)
 
     def load_runtime_config(self) -> Dict[str, Any]:
-        return {
-            "telegram_bot_token": os.environ.get("TELEGRAM_BOT_TOKEN", ""),
-            "catalog_url": os.environ.get("CATALOG_URL", "http://catalogue:8000"),
-            "alert_generator_url": os.environ.get("ALERT_GENERATOR_URL", "http://alert-generator:8091"),
-            "service_id": os.environ.get("SERVICE_ID", "telegram-bot"),
-            "service_name": os.environ.get("SERVICE_NAME", "Telegram Bot"),
-            "service_type": os.environ.get("SERVICE_TYPE", "telegram_bot"),
-            "register_interval": int(os.environ.get("REGISTER_INTERVAL", 60)),
-            "config_file": os.environ.get("CONFIG_FILE", "/app/config.json"),
-            "mqtt_broker": os.environ.get("MQTT_BROKER", "mosquitto"),
-            "mqtt_port": int(os.environ.get("MQTT_PORT", 1883)),
-            "mqtt_alert_topic": os.environ.get("MQTT_ALERT_TOPIC", "smartplant/alerts/#"),
-            "mqtt_command_topic_base": os.environ.get("MQTT_COMMAND_TOPIC_BASE", "smartplant/commands"),
-        }
+        return self.config.get("runtime", {})
 
     def msg(self, key: str, default: str = "") -> str:
-            return self.config.get("messages", {}).get(key, default)
+        return self.config.get("messages", {}).get(key, default)
 
     def safe_get_json(self, url: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         resp = requests.get(url, params=params, timeout=15)
