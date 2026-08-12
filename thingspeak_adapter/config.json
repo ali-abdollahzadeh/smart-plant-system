@@ -1,15 +1,46 @@
 {
-  "thingspeak": {
-    "base_url": "https://api.thingspeak.com",
-    "user_api_key": "Q4D8HQEL9QJQBFGZ",
-    "public_channels": false
+  "service": {
+    "id": "thingspeak-adapter",
+    "name": "ThingSpeak Adapter",
+    "type": "thingspeak_adapter",
+    "host": "0.0.0.0",
+    "port": 8080,
+    "endpoint": "http://thingspeak-adapter:8080",
+    "log_screen": true
+  },
+  "catalogue": {
+    "url": "http://catalogue:8000",
+    "request_timeout": 5,
+    "registration_retry_delay": 5
   },
   "mqtt": {
-    "topic": "smartplant/sensors/#"
+    "client_id": "thingspeak-adapter",
+    "broker": "mosquitto",
+    "port": 1883,
+    "topic": "smartplant/sensors/#",
+    "qos": 2,
+    "keepalive": 60,
+    "reconnect_delay": 5
   },
-  "default_fields": {
-    "temperature": "Temperature",
-    "soil_moisture": "Soil Moisture",
-    "humidity": "Humidity"
+  "thingspeak": {
+    "base_url": "https://api.thingspeak.com",
+    "user_api_key_env": "THINGSPEAK_USER_API_KEY",
+    "public_channels": false,
+    "channel_name_prefix": "Plant Channel - ",
+    "request_timeout": 10,
+    "max_history_results": 100,
+    "field_labels": {
+      "temperature": "Temperature",
+      "soil_moisture": "Soil Moisture",
+      "humidity": "Humidity"
+    }
+  },
+  "field_mapping": {
+    "temperature": "field1",
+    "soil_moisture": "field2",
+    "humidity": "field3"
+  },
+  "storage": {
+    "registry_file": "/app/data/channel_registry.json"
   }
 }

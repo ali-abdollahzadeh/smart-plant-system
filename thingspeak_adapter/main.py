@@ -6,8 +6,8 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 import cherrypy
-import requests
 import paho.mqtt.client as mqtt
+import requests
 
 
 class AppConfig:
@@ -17,53 +17,35 @@ class AppConfig:
 
     @staticmethod
     def load_json(path: str) -> Dict[str, Any]:
-        if not os.path.exists(path):
-            return {}
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
+        with open(path, "r", encoding="utf-8") as file:
+            return json.load(file)
 
     @staticmethod
-    def save_json(path: str, data: Dict[str, Any]) -> None:
-        temp_path = f"{path}.tmp"
-        with open(temp_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
-        os.replace(temp_path, path)
-
-    @staticmethod
-    def ensure_file_exists(path: str, default_data: Dict[str, Any]) -> None:
+    def ensure_json_file(path: str, default_data: Dict[str, Any]) -> None:
         directory = os.path.dirname(path)
         if directory:
             os.makedirs(directory, exist_ok=True)
 
         if not os.path.exists(path):
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(default_data, f, indent=2)
+            with open(path, "w", encoding="utf-8") as file:
+                json.dump(default_data, file, indent=4)
 
     @staticmethod
-    def load_runtime_config() -> Dict[str, Any]:
-        return {
-            "service_id": os.environ.get("SERVICE_ID", "thingspeak-adapter"),
-            "service_name": os.environ.get("SERVICE_NAME", "ThingSpeak Adapter"),
-            "service_type": os.environ.get("SERVICE_TYPE", "thingspeak_adapter"),
-            "service_host": os.environ.get("SERVICE_HOST", "0.0.0.0"),
-            "service_port": int(os.environ.get("SERVICE_PORT", 8080)),
-            "catalog_url": os.environ.get("CATALOG_URL", "http://catalogue:8000"),
-            "register_interval": int(os.environ.get("REGISTER_INTERVAL", 60)),
-            "mqtt_broker": os.environ.get("MQTT_BROKER", "mosquitto"),
-            "mqtt_port": int(os.environ.get("MQTT_PORT", 1883)),
-            "config_file": os.environ.get("CONFIG_FILE", "config.json"),
-            "registry_file": os.environ.get("REGISTRY_FILE", "channel_registry.json"),
-        }
+    def save_json_atomic(path: str, data: Dict[str, Any]) -> None:
+        temp_path = f"{path}.tmp"
+        with open(temp_path, "w", encoding="utf-8") as file:
+            json.dump(data, file, indent=4)
+        os.replace(temp_path, path)
 
 
 class SharedState:
     def __init__(self, registry_file: str) -> None:
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()
         self.latest_message: Optional[Dict[str, Any]] = None
         self.last_upload_status: Optional[Dict[str, Any]] = None
-        self.last_registration_time: float = 0.0
+        self.registry_file = registry_file
         self.registry: Dict[str, Any] = AppConfig.load_json(registry_file)
-        print(f"[REGISTRY] Loaded registry from {registry_file}: {self.registry}")
+        print(f"[REGISTRY] Loaded {len(self.registry)} device channel entries")
 
     def set_latest_message(self, payload: Dict[str, Any]) -> None:
         with self.lock:
@@ -81,10 +63,6 @@ class SharedState:
         with self.lock:
             return self.last_upload_status
 
-    def set_last_registration_time(self, ts: float) -> None:
-        with self.lock:
-            self.last_registration_time = ts
-
     def get_registry(self) -> Dict[str, Any]:
         with self.lock:
             return dict(self.registry)
@@ -93,107 +71,135 @@ class SharedState:
         with self.lock:
             return self.registry.get(device_id)
 
-    def save_device_channel(self, device_id: str, channel_info: Dict[str, Any], registry_file: str) -> None:
+    def save_device_channel(self, device_id: str, channel_info: Dict[str, Any]) -> None:
         with self.lock:
             self.registry[device_id] = channel_info
-            AppConfig.save_json(registry_file, self.registry)
+            AppConfig.save_json_atomic(self.registry_file, self.registry)
 
 
 class ThingSpeakAdapterService:
     def __init__(self) -> None:
-        self.runtime = AppConfig.load_runtime_config()
-        AppConfig.ensure_file_exists(self.runtime["registry_file"], {})
-        self.config = AppConfig.load_json(self.runtime["config_file"])
-        self.state = SharedState(self.runtime["registry_file"])
+        self.config_file = os.environ.get("CONFIG_FILE", "/app/config.json")
+        self.config = AppConfig.load_json(self.config_file)
 
-        self.mqtt_client = mqtt.Client()
+        self.registry_file = self.config["storage"]["registry_file"]
+        AppConfig.ensure_json_file(self.registry_file, {})
+        self.state = SharedState(self.registry_file)
+
+        mqtt_config = self.config["mqtt"]
+        self.mqtt_client = mqtt.Client(client_id=mqtt_config["client_id"])
         self.mqtt_client.on_connect = self.on_connect
         self.mqtt_client.on_message = self.on_message
 
     # --------------------------------------------------
     # Configuration helpers
     # --------------------------------------------------
+    def service_config(self) -> Dict[str, Any]:
+        return self.config["service"]
+
+    def catalogue_config(self) -> Dict[str, Any]:
+        return self.config["catalogue"]
+
+    def mqtt_config(self) -> Dict[str, Any]:
+        return self.config["mqtt"]
+
+    def thingspeak_config(self) -> Dict[str, Any]:
+        return self.config["thingspeak"]
+
+    def field_mapping(self) -> Dict[str, str]:
+        return self.config["field_mapping"]
+
     def thingspeak_base_url(self) -> str:
-        return self.config["thingspeak"]["base_url"]
+        return self.thingspeak_config()["base_url"].rstrip("/")
 
     def user_api_key(self) -> str:
-        return self.config["thingspeak"]["user_api_key"]
-
-    def mqtt_topic(self) -> str:
-        return self.config["mqtt"]["topic"]
-
-    def default_fields(self) -> Dict[str, str]:
-        return self.config.get("default_fields", {})
+        env_name = self.thingspeak_config()["user_api_key_env"]
+        api_key = os.environ.get(env_name)
+        if not api_key:
+            raise RuntimeError(f"Missing required environment variable: {env_name}")
+        return api_key
 
     # --------------------------------------------------
-    # Registry management
+    # Catalogue registration
+    # --------------------------------------------------
+    def build_registration_payload(self) -> Dict[str, Any]:
+        service = self.service_config()
+        return {
+            "id": service["id"],
+            "name": service["name"],
+            "type": service["type"],
+            "endpoint": service["endpoint"],
+            "status": "active"
+        }
+
+    def register_service(self) -> bool:
+        payload = self.build_registration_payload()
+        url = f"{self.catalogue_config()['url']}/services"
+
+        try:
+            response = requests.post(
+                url,
+                json=payload,
+                timeout=self.catalogue_config()["request_timeout"]
+            )
+
+            if response.status_code in (200, 201):
+                print("[CATALOGUE] ThingSpeak Adapter registered successfully")
+                return True
+
+            print(
+                "[CATALOGUE] Registration failed - "
+                f"status={response.status_code}, response={response.text}"
+            )
+        except requests.RequestException as error:
+            print(f"[CATALOGUE] Registration error: {error}")
+
+        return False
+
+    def registration_startup_task(self) -> None:
+        retry_delay = self.catalogue_config()["registration_retry_delay"]
+
+        while not self.register_service():
+            print(f"[CATALOGUE] Retrying registration in {retry_delay} seconds...")
+            time.sleep(retry_delay)
+
+    # --------------------------------------------------
+    # Channel registry
     # --------------------------------------------------
     def get_device_channel(self, device_id: str) -> Optional[Dict[str, Any]]:
         return self.state.get_device_channel(device_id)
 
     def save_device_channel(self, device_id: str, channel_info: Dict[str, Any]) -> None:
-        self.state.save_device_channel(device_id, channel_info, self.runtime["registry_file"])
-
-    # --------------------------------------------------
-    # Catalogue registration
-    # --------------------------------------------------
-    def register_service(self) -> None:
-        payload = {
-            "id": self.runtime["service_id"],
-            "name": self.runtime["service_name"],
-            "type": self.runtime["service_type"],
-            "endpoint": f"http://{self.runtime['service_id']}:{self.runtime['service_port']}",
-            "status": "active"
-        }
-
-        try:
-            response = requests.post(
-                f"{self.runtime['catalog_url']}/services",
-                json=payload,
-                timeout=5
-            )
-
-            if response.status_code in (200, 201):
-                self.state.set_last_registration_time(time.time())
-                print(f"[CATALOGUE] Service registered: {payload}")
-            else:
-                print(f"[CATALOGUE] Registration failed: {response.status_code} {response.text}")
-
-        except requests.RequestException as e:
-            print(f"[CATALOGUE] Registration error: {e}")
-
-    def registration_loop(self) -> None:
-        while True:
-            self.register_service()
-            time.sleep(self.runtime["register_interval"])
+        self.state.save_device_channel(device_id, channel_info)
 
     # --------------------------------------------------
     # ThingSpeak channel creation
     # --------------------------------------------------
     def create_channel_for_device(self, device_id: str) -> Dict[str, Any]:
         url = f"{self.thingspeak_base_url()}/channels.json"
+        thingspeak = self.thingspeak_config()
 
         payload = {
             "api_key": self.user_api_key(),
-            "name": f"Plant Channel - {device_id}",
-            "public_flag": str(self.config["thingspeak"].get("public_channels", False)).lower()
+            "name": f"{thingspeak['channel_name_prefix']}{device_id}",
+            "public_flag": str(thingspeak["public_channels"]).lower()
         }
 
-        fields = self.default_fields()
-        field_index = 1
-        for _, field_label in fields.items():
-            payload[f"field{field_index}"] = field_label
-            field_index += 1
+        for sensor_name, field_name in self.field_mapping().items():
+            payload[field_name] = thingspeak["field_labels"][sensor_name]
 
-        response = requests.post(url, data=payload, timeout=10)
+        response = requests.post(
+            url,
+            data=payload,
+            timeout=thingspeak["request_timeout"]
+        )
         response.raise_for_status()
         data = response.json()
 
-        api_keys = data.get("api_keys", [])
         write_key = None
         read_key = None
 
-        for key_info in api_keys:
+        for key_info in data.get("api_keys", []):
             if key_info.get("write_flag", False):
                 write_key = key_info.get("api_key")
             else:
@@ -201,14 +207,13 @@ class ThingSpeakAdapterService:
 
         channel_info = {
             "channel_id": data["id"],
-            "name": data.get("name", f"Plant Channel - {device_id}"),
+            "name": data.get("name", f"{thingspeak['channel_name_prefix']}{device_id}"),
             "write_api_key": write_key,
             "read_api_key": read_key
         }
 
         self.save_device_channel(device_id, channel_info)
-        print(f"[THINGSPEAK] Created new channel for {device_id}: {channel_info}")
-
+        print(f"[THINGSPEAK] Created channel for {device_id}: {channel_info['channel_id']}")
         return channel_info
 
     def ensure_channel_for_device(self, device_id: str) -> Dict[str, Any]:
@@ -218,75 +223,118 @@ class ThingSpeakAdapterService:
         return self.create_channel_for_device(device_id)
 
     # --------------------------------------------------
+    # SenML parsing
+    # --------------------------------------------------
+    def normalize_sensor_payload(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        normalized: Dict[str, Any] = {}
+
+        device_id = payload.get("bn") or payload.get("device_id")
+        if device_id:
+            normalized["device_id"] = device_id
+
+        if payload.get("timestamp"):
+            normalized["timestamp"] = payload["timestamp"]
+        elif payload.get("bt") is not None:
+            try:
+                normalized["timestamp"] = (
+                    datetime.fromtimestamp(float(payload["bt"]), tz=timezone.utc)
+                    .replace(microsecond=0)
+                    .isoformat()
+                )
+            except (TypeError, ValueError, OverflowError):
+                normalized["timestamp"] = AppConfig.now_utc_iso()
+        else:
+            normalized["timestamp"] = AppConfig.now_utc_iso()
+
+        measurements = payload.get("e", [])
+        if isinstance(measurements, list):
+            for measurement in measurements:
+                if not isinstance(measurement, dict):
+                    continue
+                name = measurement.get("n")
+                if name in self.field_mapping() and "v" in measurement:
+                    normalized[name] = measurement["v"]
+
+        # Backward compatibility for flat JSON payloads.
+        for sensor_name in self.field_mapping():
+            if sensor_name not in normalized and sensor_name in payload:
+                normalized[sensor_name] = payload[sensor_name]
+
+        return normalized
+
+    # --------------------------------------------------
     # MQTT handling
     # --------------------------------------------------
     def on_connect(self, client, userdata, flags, rc):
+        mqtt_config = self.mqtt_config()
+
         if rc == 0:
-            topic = self.mqtt_topic()
-            client.subscribe(topic)
-            print(f"[MQTT] Connected to {self.runtime['mqtt_broker']}:{self.runtime['mqtt_port']}")
-            print(f"[MQTT] Subscribed to {topic}")
+            client.subscribe(mqtt_config["topic"], qos=mqtt_config["qos"])
+            print(f"[MQTT] Connected to {mqtt_config['broker']}:{mqtt_config['port']}")
+            print(f"[MQTT] Subscribed to {mqtt_config['topic']}")
         else:
             print(f"[MQTT] Connection failed with rc={rc}")
 
     def on_message(self, client, userdata, msg):
         try:
-            sensor_data = json.loads(msg.payload.decode("utf-8"))
+            raw_payload = json.loads(msg.payload.decode("utf-8"))
+            sensor_data = self.normalize_sensor_payload(raw_payload)
             sensor_data["_mqtt_topic"] = msg.topic
             sensor_data["_received_at"] = AppConfig.now_utc_iso()
 
             self.state.set_latest_message(sensor_data)
-
-            print(f"[MQTT] Received: {sensor_data}")
+            print(f"[MQTT] Received from {msg.topic}: {sensor_data}")
             self.process_sensor_data(sensor_data)
 
         except json.JSONDecodeError:
             self.set_upload_status(False, "Invalid JSON received from MQTT")
             print("[MQTT] Invalid JSON payload")
-        except Exception as e:
-            self.set_upload_status(False, f"Unexpected processing error: {e}")
-            print(f"[MQTT] Processing error: {e}")
+        except Exception as error:
+            self.set_upload_status(False, f"Unexpected processing error: {error}")
+            print(f"[MQTT] Processing error: {error}")
 
     def mqtt_loop(self) -> None:
+        mqtt_config = self.mqtt_config()
+
         while True:
             try:
                 self.mqtt_client.connect(
-                    self.runtime["mqtt_broker"],
-                    self.runtime["mqtt_port"],
-                    keepalive=60
+                    mqtt_config["broker"],
+                    mqtt_config["port"],
+                    keepalive=mqtt_config["keepalive"]
                 )
                 self.mqtt_client.loop_forever()
-            except Exception as e:
-                print(f"[MQTT] Connection error: {e}")
-                print("[MQTT] Retrying in 5 seconds...")
-                time.sleep(5)
+            except Exception as error:
+                print(f"[MQTT] Connection error: {error}")
+                retry_delay = mqtt_config["reconnect_delay"]
+                print(f"[MQTT] Retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
 
     # --------------------------------------------------
     # ThingSpeak upload
     # --------------------------------------------------
-    def build_update_payload(self, sensor_data: Dict[str, Any], channel_info: Dict[str, Any]) -> Dict[str, Any]:
+    def build_update_payload(
+        self,
+        sensor_data: Dict[str, Any],
+        channel_info: Dict[str, Any]
+    ) -> Dict[str, Any]:
         payload = {
             "api_key": channel_info["write_api_key"],
             "created_at": sensor_data.get("timestamp", AppConfig.now_utc_iso()),
             "status": sensor_data.get("device_id", "unknown-device")
         }
 
-        sensor_to_field = {
-            "temperature": "field1",
-            "soil_moisture": "field2",
-            "humidity": "field3"
-        }
-
-        for sensor_key, field_name in sensor_to_field.items():
-            if sensor_key in sensor_data:
-                payload[field_name] = sensor_data[sensor_key]
+        for sensor_name, field_name in self.field_mapping().items():
+            if sensor_name in sensor_data:
+                payload[field_name] = sensor_data[sensor_name]
 
         return payload
 
     def process_sensor_data(self, sensor_data: Dict[str, Any]) -> None:
         device_id = sensor_data.get("device_id")
+
         if not device_id:
-            self.set_upload_status(False, "Missing device_id in MQTT payload")
+            self.set_upload_status(False, "Missing device_id / SenML bn")
             return
 
         channel_info = self.ensure_channel_for_device(device_id)
@@ -299,12 +347,16 @@ class ThingSpeakAdapterService:
         payload = self.build_update_payload(sensor_data, channel_info)
 
         try:
-            response = requests.post(url, data=payload, timeout=10)
+            response = requests.post(
+                url,
+                data=payload,
+                timeout=self.thingspeak_config()["request_timeout"]
+            )
             response.raise_for_status()
 
             try:
                 result = response.json()
-            except Exception:
+            except ValueError:
                 result = response.text
 
             self.set_upload_status(
@@ -322,18 +374,23 @@ class ThingSpeakAdapterService:
                 f"to channel {channel_info['channel_id']}"
             )
 
-        except requests.RequestException as e:
+        except requests.RequestException as error:
             self.set_upload_status(
                 False,
-                f"Upload failed: {e}",
+                f"Upload failed: {error}",
                 {
                     "device_id": device_id,
                     "channel_id": channel_info.get("channel_id")
                 }
             )
-            print(f"[THINGSPEAK] Upload error for {device_id}: {e}")
+            print(f"[THINGSPEAK] Upload error for {device_id}: {error}")
 
-    def set_upload_status(self, success: bool, message: str, extra: Optional[Dict[str, Any]] = None) -> None:
+    def set_upload_status(
+        self,
+        success: bool,
+        message: str,
+        extra: Optional[Dict[str, Any]] = None
+    ) -> None:
         status = {
             "success": success,
             "message": message,
@@ -349,8 +406,17 @@ class ThingSpeakAdapterService:
     # Background tasks
     # --------------------------------------------------
     def start_background_threads(self) -> None:
-        threading.Thread(target=self.mqtt_loop, daemon=True).start()
-        threading.Thread(target=self.registration_loop, daemon=True).start()
+        threading.Thread(
+            target=self.registration_startup_task,
+            daemon=True,
+            name="catalogue-registration-thread"
+        ).start()
+
+        threading.Thread(
+            target=self.mqtt_loop,
+            daemon=True,
+            name="mqtt-thread"
+        ).start()
 
 
 class RootAPI:
@@ -415,7 +481,16 @@ class RegistryAPI:
 
     @cherrypy.tools.json_out()
     def GET(self):
-        return self.service.state.get_registry()
+        registry = self.service.state.get_registry()
+        safe_registry = {}
+
+        for device_id, info in registry.items():
+            safe_registry[device_id] = {
+                "channel_id": info.get("channel_id"),
+                "name": info.get("name")
+            }
+
+        return safe_registry
 
 
 class HistoryAPI:
@@ -430,6 +505,15 @@ class HistoryAPI:
             cherrypy.response.status = 400
             return {"error": "device_id is required"}
 
+        try:
+            results = int(results)
+        except (TypeError, ValueError):
+            cherrypy.response.status = 400
+            return {"error": "results must be an integer"}
+
+        max_results = self.service.thingspeak_config()["max_history_results"]
+        results = max(1, min(results, max_results))
+
         channel_info = self.service.get_device_channel(device_id)
         if not channel_info:
             cherrypy.response.status = 404
@@ -443,13 +527,17 @@ class HistoryAPI:
             return {"error": f"Missing channel_id for device '{device_id}'"}
 
         url = f"{self.service.thingspeak_base_url()}/channels/{channel_id}/feeds.json"
-        params = {"results": int(results)}
+        params = {"results": results}
 
         if read_api_key:
             params["api_key"] = read_api_key
 
         try:
-            response = requests.get(url, params=params, timeout=10)
+            response = requests.get(
+                url,
+                params=params,
+                timeout=self.service.thingspeak_config()["request_timeout"]
+            )
             response.raise_for_status()
             data = response.json()
 
@@ -461,18 +549,21 @@ class HistoryAPI:
                 "feeds": data.get("feeds", [])
             }
 
-        except requests.RequestException as e:
-            cherrypy.response.status = 500
-            return {"error": f"ThingSpeak history request failed: {e}"}
+        except requests.RequestException as error:
+            cherrypy.response.status = 502
+            return {"error": f"ThingSpeak history request failed: {error}"}
 
 
 if __name__ == "__main__":
     service = ThingSpeakAdapterService()
 
+    service_info = service.service_config()
+    mqtt_info = service.mqtt_config()
+
     print("[START] ThingSpeak Adapter starting...")
-    print(f"[INFO] Service ID: {service.runtime['service_id']}")
-    print(f"[INFO] MQTT Broker: {service.runtime['mqtt_broker']}:{service.runtime['mqtt_port']}")
-    print(f"[INFO] MQTT Topic: {service.config['mqtt']['topic']}")
+    print(f"[INFO] Service ID: {service_info['id']}")
+    print(f"[INFO] MQTT Broker: {mqtt_info['broker']}:{mqtt_info['port']}")
+    print(f"[INFO] MQTT Topic: {mqtt_info['topic']}")
 
     service.start_background_threads()
 
@@ -485,9 +576,9 @@ if __name__ == "__main__":
     }
 
     cherrypy.config.update({
-        "server.socket_host": service.runtime["service_host"],
-        "server.socket_port": service.runtime["service_port"],
-        "log.screen": True
+        "server.socket_host": service_info["host"],
+        "server.socket_port": service_info["port"],
+        "log.screen": service_info["log_screen"]
     })
 
     cherrypy.quickstart(app, "/", conf)

@@ -1,23 +1,18 @@
 {
-    "mqtt": {
-      "sensor_topic": "smartplant/sensors/#",
-      "alert_topic_base": "smartplant/alerts"
-    },
-    "thresholds": {
-      "temperature": {
-        "min": 18,
-        "max": 30
-      },
-      "soil_moisture": {
-        "min": 30,
-        "max": 80
-      },
-      "humidity": {
-        "min": 40,
-        "max": 80
-      }
-    },
-    "report": {
-      "default_results": 20
-    }
+  "service_id": "alert-generator",
+  "service_name": "Alert Generator",
+  "service_type": "alert_generator",
+  "service_host": "0.0.0.0",
+  "service_port": 8091,
+  "catalog_url": "http://catalogue:8000",
+  "thingspeak_adapter_url": "http://thingspeak-adapter:8080",
+  "default_results": 20,
+  "mqtt_info": {
+    "clientID": "alert-generator-01",
+    "broker": "mosquitto",
+    "port": 1883,
+    "sensor_topic": "smartplant/sensors/#",
+    "analysis_topic": "smartplant/analysis/#",
+    "alert_topic_base": "smartplant/alerts"
   }
+}

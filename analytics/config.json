@@ -1,34 +1,53 @@
 {
-    "mqtt": {
-      "sensor_topic": "smartplant/sensors/#",
-      "command_topic_base": "smartplant/commands"
+    "service": {
+        "id": "analytics",
+        "name": "Analytics Service",
+        "type": "analytics",
+        "host": "0.0.0.0",
+        "port": 8090,
+        "registration_retry_delay": 5
     },
-    "thresholds": {
-      "temperature": {
-        "min": 18,
-        "max": 30
-      },
-      "soil_moisture": {
-        "min": 30,
-        "max": 80
-      },
-      "humidity": {
-        "min": 40,
-        "max": 80
-      }
+    "catalogue": {
+        "url": "http://catalogue:8000",
+        "threshold_refresh_interval": 60
+    },
+    "thingspeak_adapter": {
+        "url": "http://thingspeak-adapter:8080",
+        "history_endpoint": "/history",
+        "history_results": 30,
+        "analysis_interval": 60
+    },
+    "mqtt": {
+        "broker": "mosquitto",
+        "port": 1883,
+        "client_id": "analytics",
+        "sensor_topic": "smartplant/sensors/#",
+        "command_topic_base": "smartplant/commands",
+        "analysis_topic_base": "smartplant/analysis",
+        "qos": 1
+    },
+    "analytics": {
+        "minimum_history_points": 5,
+        "zscore_warning": 2.0,
+        "trend_epsilon": 0.02
     },
     "commands": {
-      "temperature_low": "start_heating",
-      "temperature_high": "start_cooling",
-      "temperature_normal": "stop_temperature_control",
-  
-      "soil_moisture_low": "increase_watering",
-      "soil_moisture_high": "reduce_watering",
-      "soil_moisture_normal": "stop_watering_adjustment",
-  
-      "humidity_low": "increase_humidity",
-      "humidity_high": "decrease_humidity",
-      "humidity_normal": "stop_humidity_adjustment"
+        "temperature_low": "start_heating",
+        "temperature_high": "start_cooling",
+        "temperature_normal": "stop_temperature_control",
+        "soil_moisture_low": "increase_watering",
+        "soil_moisture_high": "reduce_watering",
+        "soil_moisture_normal": "stop_watering_adjustment",
+        "humidity_low": "increase_humidity",
+        "humidity_high": "decrease_humidity",
+        "humidity_normal": "stop_humidity_adjustment"
+    },
+    "llm": {
+        "enabled": true,
+        "provider": "ollama",
+        "url": "http://ollama:11434",
+        "model": "gemma3:1b",
+        "timeout": 120,
+        "instructions": "You are an IoT plant-care analytics assistant. Interpret only the supplied historical statistical results. Do not invent measurements or diagnoses. Briefly explain important trends, anomalies, and practical monitoring recommendations."
     }
-  }
-    
+}
