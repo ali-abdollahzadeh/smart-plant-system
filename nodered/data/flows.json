@@ -9,7 +9,7 @@
     {
         "id": "ui_tab_v2",
         "type": "ui_tab",
-        "name": "Plant Sensor Node 1",
+        "name": "raspi-01",
         "icon": "dashboard",
         "order": 1,
         "disabled": false,
@@ -18,7 +18,7 @@
     {
         "id": "51db08678596e402",
         "type": "ui_tab",
-        "name": "Plant Sensor Node 2",
+        "name": "raspi-02",
         "icon": "dashboard",
         "disabled": false,
         "hidden": false
@@ -26,7 +26,7 @@
     {
         "id": "d05cc46320f156d2",
         "type": "ui_tab",
-        "name": "Plant Sensor Node 3",
+        "name": "raspi-03",
         "icon": "dashboard",
         "disabled": false,
         "hidden": false
@@ -34,7 +34,7 @@
     {
         "id": "1da35cdca37300bc",
         "type": "ui_tab",
-        "name": "Plant Sensor Node 4",
+        "name": "raspi-04",
         "icon": "dashboard",
         "disabled": false,
         "hidden": false
