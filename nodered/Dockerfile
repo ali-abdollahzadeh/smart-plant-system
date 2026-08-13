@@ -2,7 +2,8 @@ FROM nodered/node-red:latest
 
 
 
-COPY package.json /data/package.json
+COPY data/package.json /data/package.json
+
 # Install nodes
 RUN cd /data && npm install
 
