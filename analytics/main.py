@@ -430,7 +430,8 @@ class AnalyticsService:
             state = "normal"
 
 
-        ###### NEW ORRER FINDED: publish analysis event for Alert Generator ######
+        ###### NEW ERROR FOUND: publish analysis event for Alert Generator ######
+        """
         analysis_event = {
             "device_id": device_id,
             "sensor_type": sensor_type,
@@ -445,7 +446,7 @@ class AnalyticsService:
             self.analysis_topic(device_id),
             analysis_event
         )
-
+         """
 
         command_key = self.SENSOR_RULES[
             sensor_type
