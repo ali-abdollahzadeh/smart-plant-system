@@ -429,6 +429,24 @@ class AnalyticsService:
         else:
             state = "normal"
 
+
+        ###### NEW ORRER FINDED: publish analysis event for Alert Generator ######
+        analysis_event = {
+            "device_id": device_id,
+            "sensor_type": sensor_type,
+            "state": state,
+            "value": value,
+            "threshold_min": limits["min"],
+            "threshold_max": limits["max"],
+            "timestamp": self.now_utc_iso()
+        }
+
+        self.publish_json(
+            self.analysis_topic(device_id),
+            analysis_event
+        )
+
+
         command_key = self.SENSOR_RULES[
             sensor_type
         ][f"{state}_command"]
@@ -439,6 +457,7 @@ class AnalyticsService:
             self.commands[command_key],
             f"{sensor_type}_{state}",
         )
+
 
     def evaluate_controls(self, sensor_data):
         thresholds = self.get_thresholds_snapshot()
